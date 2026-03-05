@@ -5,12 +5,13 @@ import { getDb, closeDb } from "../src/db.js";
 import { hireAgent, listAgents, getOrgTree, type Role, type Runtime, type OrgNode, ROLES, RUNTIMES, buildCommand } from "../src/org.js";
 import { createGoal, listGoals, createProject, listProjects } from "../src/goals.js";
 import { createTicket, listTickets, importPrd } from "../src/tickets.js";
-import { matchTicketsToAgents, dispatchRun, completeRun, failRun, listRuns, getStats } from "../src/dispatch.js";
+import { matchTicketsToAgents, dispatchRun, completeRun, failRun, listRuns, getStats, type Run } from "../src/dispatch.js";
 import { DEFAULT_SKILLKITS, getSkillkit, buildSkillInjection } from "../src/skillkits.js";
 import { createCycle, listCycles, advancePhase, appendProgress, getPhaseWork, type CyclePhase } from "../src/devcycle.js";
 import { registerApp, listApps, type AppType } from "../src/apps.js";
 import { createPipeline, listPipelines, getCurrentTask, advancePipeline, buildMarketingPrompt, PIPELINE_TEMPLATES, type PipelineType } from "../src/marketing.js";
 import { buildAutopilotPrompt, generateInitialPlan, DEFAULT_HEARTBEATS } from "../src/autopilot.js";
+import { buildDispatchCommand, buildRunCommand } from "../src/executor.js";
 
 export default function (pi: ExtensionAPI) {
 
@@ -409,27 +410,85 @@ export default function (pi: ExtensionAPI) {
 	// ── Dispatch ──
 
 	pi.registerCommand("corp-dispatch", {
-		description: "Match and dispatch todo tickets to available agents (with skills)",
+		description: "Match and dispatch todo tickets to available agents (with skills). Shows the exact commands.",
 		parameters: Type.Object({
 			dryRun: Type.Optional(Type.Boolean({ description: "Preview without dispatching" })),
 		}),
 		execute: async ({ dryRun }) => {
 			const db = getDb();
 			const matches = matchTicketsToAgents(db);
-			if (matches.length === 0) return Text("No tickets to dispatch");
+			if (matches.length === 0) return Text("No tickets to dispatch (no todo tickets or no idle agents)");
 
 			const lines: string[] = [];
 			for (const { ticket, agent } of matches) {
 				const skills = getSkillkit(db, agent.role);
-				const skillNames = skills.map((s) => s.name).join(", ");
+				const skillNames = skills.map((s) => s.name).slice(0, 3).join(", ");
 				if (dryRun) {
-					lines.push(`  [dry] ${ticket.title} → ${agent.name} [${agent.runtime}] (${skillNames})`);
+					lines.push(`  [dry] ${ticket.title}`);
+					lines.push(`        → ${agent.name} [${agent.runtime}] (${skillNames})`);
 				} else {
 					const run = dispatchRun(db, ticket.id, agent.id);
-					lines.push(`  ⚡ ${ticket.title} → ${agent.name} [${agent.runtime}] (run:${run.id.slice(0, 6)}) skills: ${skillNames}`);
+					const cmd = buildDispatchCommand(db, run);
+					lines.push(`  ⚡ ${ticket.title}`);
+					lines.push(`     agent: ${agent.name} [${agent.runtime}] skills: ${skillNames}`);
+					lines.push(`     run:   ${run.id}`);
+					lines.push(`     cmd:   ${cmd.slice(0, 120)}${cmd.length > 120 ? "..." : ""}`);
+					lines.push("");
 				}
 			}
-			return Text(`${dryRun ? "Would dispatch" : "Dispatched"} ${matches.length}:\n${lines.join("\n")}`);
+			return Text(`${dryRun ? "Would dispatch" : "Dispatched"} ${matches.length} tickets:\n\n${lines.join("\n")}`);
+		},
+	});
+
+	// ── Execute ──
+
+	pi.registerCommand("corp-run", {
+		description: "Execute a specific dispatched run (shows the command to run)",
+		parameters: Type.Object({
+			runId: Type.String({ description: "Run ID to execute" }),
+		}),
+		execute: async ({ runId }) => {
+			const db = getDb();
+			const run = db.query("SELECT * FROM runs WHERE id = ?").get(runId) as Run | null;
+			if (!run) return Text(`❌ Run ${runId} not found`);
+			if (run.status !== "running") return Text(`❌ Run ${runId} is ${run.status}, not running`);
+			const cmd = buildDispatchCommand(db, run);
+			const lines = [
+				`── EXECUTE RUN ${runId.slice(0, 8)} ──`,
+				"",
+				`  ${cmd}`,
+				"",
+				"  Copy and run this, or the LLM can execute it via interactive_shell dispatch mode.",
+				`  When done, call: /corp-done runId="${runId}" or /corp-fail runId="${runId}" error="..."`,
+			];
+			return Text(lines.join("\n"));
+		},
+	});
+
+	pi.registerCommand("corp-done", {
+		description: "Mark a run as completed",
+		parameters: Type.Object({
+			runId: Type.String({ description: "Run ID" }),
+			output: Type.Optional(Type.String({ description: "Output text" })),
+			cost: Type.Optional(Type.Number({ description: "Cost in USD" })),
+		}),
+		execute: async ({ runId, output, cost }) => {
+			const db = getDb();
+			completeRun(db, runId, { output, cost });
+			return Text(`✅ Run ${runId.slice(0, 8)} completed${cost ? ` ($${cost.toFixed(2)})` : ""}`);
+		},
+	});
+
+	pi.registerCommand("corp-fail", {
+		description: "Mark a run as failed",
+		parameters: Type.Object({
+			runId: Type.String({ description: "Run ID" }),
+			error: Type.String({ description: "Error message" }),
+		}),
+		execute: async ({ runId, error }) => {
+			const db = getDb();
+			failRun(db, runId, error);
+			return Text(`❌ Run ${runId.slice(0, 8)} failed: ${error}`);
 		},
 	});
 

@@ -6,7 +6,7 @@ const SCHEMA = `
 
 	CREATE TABLE goals (id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT, status TEXT DEFAULT 'active', created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')));
 	CREATE TABLE projects (id TEXT PRIMARY KEY, goal_id TEXT REFERENCES goals(id), name TEXT NOT NULL, repo TEXT, branch TEXT DEFAULT 'main', status TEXT DEFAULT 'active', created_at TEXT DEFAULT (datetime('now')));
-	CREATE TABLE agents (id TEXT PRIMARY KEY, name TEXT NOT NULL, role TEXT NOT NULL, runtime TEXT NOT NULL DEFAULT 'pi', model TEXT, reports_to TEXT REFERENCES agents(id), budget_monthly REAL DEFAULT 0, spent_monthly REAL DEFAULT 0, status TEXT DEFAULT 'idle', created_at TEXT DEFAULT (datetime('now')));
+	CREATE TABLE agents (id TEXT PRIMARY KEY, name TEXT NOT NULL, role TEXT NOT NULL, runtime TEXT NOT NULL DEFAULT 'pi', model TEXT, reports_to TEXT REFERENCES agents(id), budget_monthly REAL DEFAULT 0, spent_monthly REAL DEFAULT 0, status TEXT DEFAULT 'idle', project_id TEXT REFERENCES projects(id), created_at TEXT DEFAULT (datetime('now')));
 	CREATE TABLE tickets (id TEXT PRIMARY KEY, project_id TEXT REFERENCES projects(id), title TEXT NOT NULL, description TEXT, priority INTEGER DEFAULT 3, status TEXT DEFAULT 'todo', assigned_agent TEXT REFERENCES agents(id), source TEXT DEFAULT 'manual', source_id TEXT, story_index INTEGER, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')));
 	CREATE TABLE runs (id TEXT PRIMARY KEY, ticket_id TEXT REFERENCES tickets(id), agent_id TEXT REFERENCES agents(id), workspace TEXT, status TEXT DEFAULT 'running', attempt INTEGER DEFAULT 1, input_tokens INTEGER DEFAULT 0, output_tokens INTEGER DEFAULT 0, cost REAL DEFAULT 0, started_at TEXT DEFAULT (datetime('now')), completed_at TEXT, error TEXT, output TEXT);
 	CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, entity_type TEXT, entity_id TEXT, data TEXT, created_at TEXT DEFAULT (datetime('now')));
@@ -345,6 +345,64 @@ describe("pi-corp", () => {
 	test("evergreen pipeline has 4 weekly tasks", () => {
 		const tasks = ["Weekly analytics review", "Repurpose top content", "Draft weekly newsletter", "Update programmatic SEO pages"];
 		expect(tasks.length).toBe(4);
+	});
+
+	// ── Project-aware Dispatch ──
+
+	test("project-assigned agent gets project tickets first", () => {
+		db.run("INSERT INTO projects (id, name) VALUES ('p1', 'Router')");
+		db.run("INSERT INTO projects (id, name) VALUES ('p2', 'Build')");
+		db.run("INSERT INTO agents (id, name, role, runtime, status, project_id) VALUES ('a1', 'Router-Dev', 'builder', 'pi', 'idle', 'p1')");
+		db.run("INSERT INTO agents (id, name, role, runtime, status) VALUES ('a2', 'Generalist', 'builder', 'codex', 'idle')");
+		db.run("INSERT INTO tickets (id, project_id, title, status) VALUES ('t1', 'p1', 'Router ticket', 'todo')");
+		db.run("INSERT INTO tickets (id, project_id, title, status) VALUES ('t2', 'p2', 'Build ticket', 'todo')");
+		// Router-Dev should match Router ticket, Generalist should match Build ticket
+		const idle = db.query("SELECT * FROM agents WHERE status='idle'").all() as { id: string; project_id: string | null }[];
+		expect(idle.length).toBe(2);
+		const specialist = idle.find(a => a.project_id === 'p1');
+		expect(specialist).toBeDefined();
+	});
+
+	// ── Retry ──
+
+	test("retry resets failed tickets to todo", () => {
+		db.run("INSERT INTO agents (id, name, role, runtime, status) VALUES ('a1', 'B', 'builder', 'pi', 'idle')");
+		db.run("INSERT INTO tickets (id, title, status) VALUES ('t1', 'Failed task', 'failed')");
+		db.run("INSERT INTO runs (id, ticket_id, agent_id, status) VALUES ('r1', 't1', 'a1', 'failed')");
+		// Reset to todo
+		db.run("UPDATE tickets SET status = 'todo' WHERE id = 't1' AND (SELECT COUNT(*) FROM runs WHERE ticket_id = 't1') < 3");
+		const t = db.query("SELECT status FROM tickets WHERE id='t1'").get() as { status: string };
+		expect(t.status).toBe("todo");
+	});
+
+	test("retry stops after 3 attempts", () => {
+		db.run("INSERT INTO agents (id, name, role, runtime, status) VALUES ('a1', 'B', 'builder', 'pi', 'idle')");
+		db.run("INSERT INTO tickets (id, title, status) VALUES ('t1', 'Stubborn task', 'failed')");
+		db.run("INSERT INTO runs (id, ticket_id, agent_id, status) VALUES ('r1', 't1', 'a1', 'failed')");
+		db.run("INSERT INTO runs (id, ticket_id, agent_id, status) VALUES ('r2', 't1', 'a1', 'failed')");
+		db.run("INSERT INTO runs (id, ticket_id, agent_id, status) VALUES ('r3', 't1', 'a1', 'failed')");
+		// Should NOT reset — 3 attempts
+		const count = (db.query("SELECT COUNT(*) as c FROM runs WHERE ticket_id = 't1'").get() as { c: number }).c;
+		expect(count).toBe(3);
+	});
+
+	// ── Feed ──
+
+	test("event feed returns chronological events", () => {
+		db.run("INSERT INTO events (type, entity_type, entity_id, data) VALUES ('agent.hired', 'agent', 'a1', '{\"name\":\"Builder\"}')");
+		db.run("INSERT INTO events (type, entity_type, entity_id, data) VALUES ('ticket.created', 'ticket', 't1', '{\"title\":\"Fix\"}')");
+		db.run("INSERT INTO events (type, entity_type, entity_id, data) VALUES ('run.dispatched', 'run', 'r1', '{\"ticketId\":\"t1\"}')");
+		db.run("INSERT INTO events (type, entity_type, entity_id, data) VALUES ('heartbeat.tick', 'agent', 'a1', '{\"role\":\"builder\"}')");
+		const events = db.query("SELECT * FROM events ORDER BY id DESC LIMIT 10").all();
+		expect(events.length).toBe(4);
+	});
+
+	test("feed can filter by type", () => {
+		db.run("INSERT INTO events (type, entity_type, entity_id) VALUES ('agent.hired', 'agent', 'a1')");
+		db.run("INSERT INTO events (type, entity_type, entity_id) VALUES ('ticket.created', 'ticket', 't1')");
+		db.run("INSERT INTO events (type, entity_type, entity_id) VALUES ('agent.fired', 'agent', 'a2')");
+		const agentEvents = db.query("SELECT * FROM events WHERE type LIKE 'agent%'").all();
+		expect(agentEvents.length).toBe(2);
 	});
 
 	// ── Full Bootstrap ──

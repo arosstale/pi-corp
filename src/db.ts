@@ -59,6 +59,7 @@ function migrate(db: Database): void {
 			budget_monthly REAL DEFAULT 0,
 			spent_monthly REAL DEFAULT 0,
 			status TEXT DEFAULT 'idle',
+			project_id TEXT REFERENCES projects(id),
 			created_at TEXT DEFAULT (datetime('now'))
 		);
 

@@ -16,6 +16,7 @@ export interface Agent {
 	budget_monthly: number;
 	spent_monthly: number;
 	status: string;
+	project_id: string | null;
 }
 
 export const ROLES = ["ceo", "cto", "lead", "builder", "scout", "reviewer", "designer", "marketer"] as const;
@@ -25,13 +26,13 @@ export const RUNTIMES = ["pi", "claude", "codex", "gemini", "aider", "goose", "a
 export type Runtime = (typeof RUNTIMES)[number];
 
 export function hireAgent(db: Database, name: string, role: Role, runtime: Runtime, opts?: {
-	model?: string; reportsTo?: string; budget?: number;
+	model?: string; reportsTo?: string; budget?: number; projectId?: string;
 }): Agent {
 	const id = genId();
 	db.run(
-		`INSERT INTO agents (id, name, role, runtime, model, reports_to, budget_monthly)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		[id, name, role, runtime, opts?.model ?? null, opts?.reportsTo ?? null, opts?.budget ?? 0],
+		`INSERT INTO agents (id, name, role, runtime, model, reports_to, budget_monthly, project_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		[id, name, role, runtime, opts?.model ?? null, opts?.reportsTo ?? null, opts?.budget ?? 0, opts?.projectId ?? null],
 	);
 	emit(db, "agent.hired", "agent", id, { name, role, runtime });
 	return getAgent(db, id)!;

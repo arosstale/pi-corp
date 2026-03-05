@@ -5,7 +5,8 @@ import { getDb, closeDb } from "../src/db.js";
 import { hireAgent, listAgents, getOrgTree, type Role, type Runtime, type OrgNode, ROLES, RUNTIMES, buildCommand } from "../src/org.js";
 import { createGoal, listGoals, createProject, listProjects } from "../src/goals.js";
 import { createTicket, listTickets, importPrd } from "../src/tickets.js";
-import { matchTicketsToAgents, dispatchRun, completeRun, failRun, listRuns, getStats, type Run } from "../src/dispatch.js";
+import { matchTicketsToAgents, dispatchRun, completeRun, failRun, listRuns, getStats, retryFailed, type Run } from "../src/dispatch.js";
+import { getFeed, formatEvent } from "../src/feed.js";
 import { DEFAULT_SKILLKITS, getSkillkit, buildSkillInjection } from "../src/skillkits.js";
 import { createCycle, listCycles, advancePhase, appendProgress, getPhaseWork, type CyclePhase } from "../src/devcycle.js";
 import { registerApp, listApps, type AppType } from "../src/apps.js";
@@ -313,7 +314,7 @@ export default function (pi: ExtensionAPI) {
 	// ── Org Management ──
 
 	pi.registerCommand("corp-hire", {
-		description: "Hire an agent into the org",
+		description: "Hire an agent into the org (optionally assign to a specific project)",
 		parameters: Type.Object({
 			name: Type.String({ description: "Agent name" }),
 			role: Type.String({ description: `Role: ${ROLES.join(", ")}` }),
@@ -321,12 +322,14 @@ export default function (pi: ExtensionAPI) {
 			model: Type.Optional(Type.String({ description: "Model override" })),
 			reportsTo: Type.Optional(Type.String({ description: "Manager agent ID" })),
 			budget: Type.Optional(Type.Number({ description: "Monthly budget USD" })),
+			projectId: Type.Optional(Type.String({ description: "Assign to specific project (specialist)" })),
 		}),
-		execute: async ({ name, role, runtime, model, reportsTo, budget }) => {
+		execute: async ({ name, role, runtime, model, reportsTo, budget, projectId }) => {
 			const db = getDb();
-			const agent = hireAgent(db, name, role as Role, runtime as Runtime, { model, reportsTo, budget });
+			const agent = hireAgent(db, name, role as Role, runtime as Runtime, { model, reportsTo, budget, projectId });
 			const skills = getSkillkit(db, role);
-			return Text(`🤝 Hired: ${agent.name} as ${agent.role} [${agent.runtime}]${budget ? ` ($${budget}/mo)` : ""}\n   Skills: ${skills.map((s) => s.name).join(", ") || "none"}`);
+			const proj = projectId ? ` → project:${projectId.slice(0, 6)}` : " (generalist)";
+			return Text(`🤝 Hired: ${agent.name} as ${agent.role} [${agent.runtime}]${budget ? ` ($${budget}/mo)` : ""}${proj}\n   Skills: ${skills.map((s) => s.name).join(", ") || "none"}`);
 		},
 	});
 
@@ -501,6 +504,37 @@ export default function (pi: ExtensionAPI) {
 			const db = getDb();
 			failRun(db, runId, error);
 			return Text(`❌ Run ${runId.slice(0, 8)} failed: ${error}`);
+		},
+	});
+
+	// ── Feed ──
+
+	pi.registerCommand("corp-feed", {
+		description: "Show activity feed — chronological log of all events",
+		parameters: Type.Object({
+			limit: Type.Optional(Type.Number({ description: "Number of events (default 20)" })),
+			type: Type.Optional(Type.String({ description: "Filter by type prefix: agent, ticket, run, cycle, pipeline, heartbeat" })),
+		}),
+		execute: async ({ limit, type }) => {
+			const db = getDb();
+			const events = getFeed(db, limit ?? 20, type);
+			if (events.length === 0) return Text("No events yet.");
+			const lines = ["── ACTIVITY FEED ──────────────────────────────────────────"];
+			for (const e of events) lines.push(formatEvent(e));
+			return Text(lines.join("\n"));
+		},
+	});
+
+	// ── Retry ──
+
+	pi.registerCommand("corp-retry", {
+		description: "Retry all failed tickets (max 3 attempts per ticket)",
+		parameters: Type.Object({}),
+		execute: async () => {
+			const db = getDb();
+			const count = retryFailed(db);
+			if (count === 0) return Text("No failed tickets to retry (or all at max attempts).");
+			return Text(`🔄 Retried ${count} failed ticket(s) — they're back in the todo queue.`);
 		},
 	});
 

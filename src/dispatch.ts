@@ -38,8 +38,9 @@ export function getAvailableAgents(db: Database): Agent[] {
 }
 
 /**
- * Match tickets to agents by role affinity.
- * Returns pairs of (ticket, agent) ready to dispatch.
+ * Match tickets to agents by role affinity + project assignment.
+ * Project-assigned agents only get tickets from their project.
+ * Unassigned agents are generalists — they take any ticket.
  */
 export function matchTicketsToAgents(db: Database): { ticket: Ticket; agent: Agent }[] {
 	const tickets = listTickets(db, "todo");
@@ -48,16 +49,44 @@ export function matchTicketsToAgents(db: Database): { ticket: Ticket; agent: Age
 	const usedAgents = new Set<string>();
 
 	for (const ticket of tickets) {
-		// Find best available agent (prefer builders, then scouts for low-priority)
-		const agent = agents.find((a) => !usedAgents.has(a.id) && (
-			a.role === "builder" || a.role === "lead" || a.role === "scout"
-		));
+		// 1. Prefer project-specialist agent
+		let agent = agents.find((a) => !usedAgents.has(a.id) &&
+			a.project_id === ticket.project_id && a.project_id !== null &&
+			(a.role === "builder" || a.role === "lead" || a.role === "scout" || a.role === "designer" || a.role === "marketer"),
+		);
+		// 2. Fall back to generalist (no project_id)
+		if (!agent) {
+			agent = agents.find((a) => !usedAgents.has(a.id) &&
+				!a.project_id &&
+				(a.role === "builder" || a.role === "lead" || a.role === "scout" || a.role === "designer" || a.role === "marketer"),
+			);
+		}
 		if (agent) {
 			matches.push({ ticket, agent });
 			usedAgents.add(agent.id);
 		}
 	}
 	return matches;
+}
+
+/**
+ * Retry failed tickets — reset status to todo so they can be re-dispatched.
+ */
+export function retryFailed(db: Database): number {
+	const failed = listTickets(db, "failed");
+	let count = 0;
+	for (const ticket of failed) {
+		// Check retry count — max 3 attempts
+		const attempts = (db.query(
+			"SELECT COUNT(*) as c FROM runs WHERE ticket_id = ?"
+		).get(ticket.id) as { c: number }).c;
+		if (attempts < 3) {
+			db.run("UPDATE tickets SET status = 'todo', updated_at = datetime('now') WHERE id = ?", [ticket.id]);
+			emit(db, "ticket.retried", "ticket", ticket.id, { attempt: attempts + 1 });
+			count++;
+		}
+	}
+	return count;
 }
 
 /**

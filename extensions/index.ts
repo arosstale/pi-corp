@@ -14,6 +14,7 @@ import { createPipeline, listPipelines, getCurrentTask, advancePipeline, buildMa
 import { buildAutopilotPrompt, generateInitialPlan, DEFAULT_HEARTBEATS } from "../src/autopilot.js";
 import { buildDispatchCommand, buildRunCommand, executeAndTrack, getActiveProcesses } from "../src/executor.js";
 import { bootstrapAgency, type AgencyType } from "../src/agency.js";
+import { createExperiment, startExperiment, completeExperiment, listExperiments, generateHypotheses, getPortfolioAlpha, type ExperimentType } from "../src/experiments.js";
 import { tick, getHeartbeatStatus, getDueAgents } from "../src/heartbeat.js";
 import { getRecentCosts, getTotalCost } from "../src/cost-tracker.js";
 import { syncIssues } from "../src/github-sync.js";
@@ -519,6 +520,96 @@ export default function (pi: ExtensionAPI) {
 			const db = getDb();
 			failRun(db, runId, error);
 			return Text(`❌ Run ${runId.slice(0, 8)} failed: ${error}`);
+		},
+	});
+
+	// ── Quant Growth Engine ──
+
+	pi.registerCommand("corp-experiment", {
+		description: "Create, run, or complete growth experiments (quant marketing)",
+		parameters: Type.Object({
+			create: Type.Optional(Type.Boolean({ description: "Create experiment from hypothesis" })),
+			type: Type.Optional(Type.String({ description: "Experiment type: headline, cta, pricing, cold-email, landing-page, seo-title, etc." })),
+			hypothesis: Type.Optional(Type.String({ description: "What you think will happen" })),
+			variantA: Type.Optional(Type.String({ description: "Control variant" })),
+			variantB: Type.Optional(Type.String({ description: "Test variant" })),
+			start: Type.Optional(Type.String({ description: "Experiment ID to start running" })),
+			traffic: Type.Optional(Type.Number({ description: "Traffic/impressions to allocate" })),
+			complete: Type.Optional(Type.String({ description: "Experiment ID to record results" })),
+			baseline: Type.Optional(Type.Number({ description: "Control conversion rate (0-1)" })),
+			result: Type.Optional(Type.Number({ description: "Test conversion rate (0-1)" })),
+			confidence: Type.Optional(Type.Number({ description: "Statistical confidence (0-1)" })),
+			projectId: Type.Optional(Type.String()),
+		}),
+		execute: async (args) => {
+			const db = getDb();
+			if (args.complete) {
+				const exp = completeExperiment(db, args.complete, args.baseline ?? 0, args.result ?? 0, args.confidence ?? 0);
+				const lift = ((exp.alpha ?? 0) * 100).toFixed(1);
+				const icon = exp.status === "winner" ? "🏆" : exp.status === "loser" ? "📉" : "🤷";
+				return Text(`${icon} Experiment ${exp.status}: ${lift}% lift (${exp.confidence?.toFixed(2)} confidence)\n  ${exp.hypothesis}`);
+			}
+			if (args.start) {
+				startExperiment(db, args.start, args.traffic ?? 1000);
+				return Text(`🧪 Experiment ${args.start} is now running with ${args.traffic ?? 1000} traffic`);
+			}
+			if (args.create && args.type && args.hypothesis) {
+				const exp = createExperiment(db, {
+					projectId: args.projectId,
+					type: args.type as ExperimentType,
+					hypothesis: args.hypothesis,
+					variantA: args.variantA ?? "Control",
+					variantB: args.variantB ?? "Variant B",
+				});
+				return Text(`🧪 Experiment created: ${exp.id}\n  ${exp.hypothesis}\n  A: ${exp.variant_a}\n  B: ${exp.variant_b}`);
+			}
+			// List experiments
+			const exps = listExperiments(db);
+			if (exps.length === 0) return Text("No experiments. Use /corp-experiment create=true type=headline hypothesis='...'");
+			const lines = ["── EXPERIMENT LAB ─────────────────────────────────────────"];
+			const portfolio = getPortfolioAlpha(db);
+			lines.push(`  Portfolio: ${portfolio.totalExperiments} experiments │ ${portfolio.winners}W/${portfolio.losers}L/${portfolio.inconclusive}? │ compounded lift: ${(portfolio.compoundedLift * 100).toFixed(1)}%`);
+			lines.push("");
+			for (const e of exps.slice(0, 10)) {
+				const icon = e.status === "winner" ? "🏆" : e.status === "loser" ? "📉" : e.status === "running" ? "🧪" : e.status === "inconclusive" ? "🤷" : "💡";
+				const alpha = e.alpha !== null ? ` (${(e.alpha * 100).toFixed(1)}%)` : "";
+				lines.push(`  ${icon} [${e.type}] ${e.hypothesis.slice(0, 60)}${alpha}`);
+			}
+			return Text(lines.join("\n"));
+		},
+	});
+
+	pi.registerCommand("corp-hypotheses", {
+		description: "Generate experiment hypotheses for a project (quant growth)",
+		parameters: Type.Object({
+			projectId: Type.Optional(Type.String({ description: "Project ID" })),
+			autoCreate: Type.Optional(Type.Boolean({ description: "Auto-create all hypotheses as experiments" })),
+		}),
+		execute: async ({ projectId, autoCreate }) => {
+			const db = getDb();
+			const hypotheses = generateHypotheses(db, projectId ?? "");
+			if (autoCreate) {
+				for (const h of hypotheses) {
+					createExperiment(db, {
+						projectId,
+						type: h.type,
+						hypothesis: h.hypothesis,
+						variantA: h.variantA,
+						variantB: h.variantB,
+						metric: h.metric,
+					});
+				}
+				return Text(`🧪 Created ${hypotheses.length} experiments from hypotheses. Run /corp-experiment to see them.`);
+			}
+			const lines = ["── HYPOTHESES (run /corp-hypotheses autoCreate=true to create all) ──"];
+			for (const h of hypotheses) {
+				lines.push(`  💡 [${h.type}] ${h.hypothesis}`);
+				lines.push(`     A: ${h.variantA}`);
+				lines.push(`     B: ${h.variantB}`);
+				lines.push(`     Metric: ${h.metric}`);
+				lines.push("");
+			}
+			return Text(lines.join("\n"));
 		},
 	});
 
@@ -1059,6 +1150,50 @@ export default function (pi: ExtensionAPI) {
 				results.push(`Round ${i + 1}: ticked ${hb.ticked}, launched ${launched}, retried ${retried}`);
 			}
 			return JSON.stringify({ rounds: totalRounds, results, activeProcesses: getActiveProcesses().size });
+		},
+	});
+
+	pi.addLLMTool({
+		name: "corp_run_experiment",
+		description: "Create and manage growth experiments. Quant marketing: hypothesis → experiment → measure → learn → compound.",
+		parameters: Type.Object({
+			action: Type.String({ description: "create, start, complete, list, generate-hypotheses" }),
+			type: Type.Optional(Type.String({ description: "headline, cta, pricing, cold-email, landing-page, seo-title" })),
+			hypothesis: Type.Optional(Type.String()),
+			variantA: Type.Optional(Type.String()),
+			variantB: Type.Optional(Type.String()),
+			experimentId: Type.Optional(Type.String()),
+			baseline: Type.Optional(Type.Number()),
+			result: Type.Optional(Type.Number()),
+			confidence: Type.Optional(Type.Number()),
+			traffic: Type.Optional(Type.Number()),
+			projectId: Type.Optional(Type.String()),
+		}),
+		execute: async (args) => {
+			const db = getDb();
+			if (args.action === "generate-hypotheses") {
+				const hypotheses = generateHypotheses(db, args.projectId ?? "");
+				for (const h of hypotheses) {
+					createExperiment(db, { projectId: args.projectId, type: h.type as ExperimentType, hypothesis: h.hypothesis, variantA: h.variantA, variantB: h.variantB, metric: h.metric });
+				}
+				return JSON.stringify({ created: hypotheses.length });
+			}
+			if (args.action === "create" && args.type && args.hypothesis) {
+				const exp = createExperiment(db, { projectId: args.projectId, type: args.type as ExperimentType, hypothesis: args.hypothesis, variantA: args.variantA ?? "Control", variantB: args.variantB ?? "Variant B" });
+				return JSON.stringify(exp);
+			}
+			if (args.action === "start" && args.experimentId) {
+				startExperiment(db, args.experimentId, args.traffic ?? 1000);
+				return JSON.stringify({ started: args.experimentId });
+			}
+			if (args.action === "complete" && args.experimentId) {
+				const exp = completeExperiment(db, args.experimentId, args.baseline ?? 0, args.result ?? 0, args.confidence ?? 0);
+				return JSON.stringify(exp);
+			}
+			// list
+			const portfolio = getPortfolioAlpha(db);
+			const exps = listExperiments(db);
+			return JSON.stringify({ portfolio, experiments: exps.slice(0, 20) });
 		},
 	});
 

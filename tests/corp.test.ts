@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createPipeline } from "../src/marketing.ts";
 import { bootstrapAgency } from "../src/agency.ts";
+import { createExperiment, startExperiment, completeExperiment, listExperiments, generateHypotheses, getPortfolioAlpha } from "../src/experiments.ts";
 
 const SCHEMA = `
 	CREATE TABLE marketing_pipelines (id TEXT PRIMARY KEY, type TEXT NOT NULL, project_id TEXT, status TEXT DEFAULT 'running', current_task INTEGER DEFAULT 0, tasks TEXT NOT NULL, outputs TEXT DEFAULT '{}', created_at TEXT DEFAULT (datetime('now')));
@@ -416,6 +417,40 @@ describe("pi-corp", () => {
 		expect(pipeline.tasks[0].title).toContain("SEO keyword research");
 		expect(pipeline.tasks[3].title).toContain("Cold outreach");
 		expect(pipeline.tasks[7].title).toContain("free tool");
+	});
+
+	// ── Quant Growth Experiments ──
+
+	test("create and complete an experiment", () => {
+		const exp = createExperiment(db, {
+			type: "headline",
+			hypothesis: "Benefit headline converts better",
+			variantA: "Build websites fast",
+			variantB: "Get 3x more clients with a better website",
+		});
+		expect(exp.status).toBe("hypothesis");
+		startExperiment(db, exp.id, 500);
+		const completed = completeExperiment(db, exp.id, 0.03, 0.045, 0.97);
+		expect(completed.status).toBe("winner");
+		expect(completed.alpha).toBeCloseTo(0.5); // 50% lift
+	});
+
+	test("portfolio alpha compounds winners", () => {
+		createExperiment(db, { type: "headline", hypothesis: "H1", variantA: "A", variantB: "B" });
+		const e1 = createExperiment(db, { type: "cta", hypothesis: "H2", variantA: "A", variantB: "B" });
+		const e2 = createExperiment(db, { type: "pricing", hypothesis: "H3", variantA: "A", variantB: "B" });
+		completeExperiment(db, e1.id, 0.05, 0.06, 0.96); // 20% lift, winner
+		completeExperiment(db, e2.id, 0.10, 0.12, 0.98); // 20% lift, winner
+		const portfolio = getPortfolioAlpha(db);
+		expect(portfolio.winners).toBe(2);
+		expect(portfolio.compoundedLift).toBeCloseTo(0.44); // 1.2 * 1.2 - 1 = 0.44
+	});
+
+	test("generate hypotheses returns 8 experiments", () => {
+		const hypotheses = generateHypotheses(db, "");
+		expect(hypotheses.length).toBe(8);
+		expect(hypotheses[0]!.type).toBe("headline");
+		expect(hypotheses[3]!.type).toBe("cold-email");
 	});
 
 	// ── Agency Templates ──

@@ -1,0 +1,46 @@
+{
+  "title": "pi-corp — What's Next?",
+  "description": "18 commits, 6.2k lines, never run live. Here's the honest priority list.",
+  "questions": [
+    {
+      "id": "status",
+      "type": "info",
+      "question": "Current State",
+      "media": {
+        "type": "table",
+        "table": {
+          "headers": ["Category", "Built", "Tested Live", "Status"],
+          "rows": [
+            ["Extension install", "yes", "just now", "Need /reload"],
+            ["Agency bootstrap", "yes /corp-agency", "no", "Never run live"],
+            ["Ticket dispatch", "yes /corp-dispatch", "no", "Never executed a real agent"],
+            ["/corp-go (full loop)", "yes", "no", "Bun.spawn untested on Windows"],
+            ["Client intake flow", "yes /corp-intake", "no", "New in v1.5"],
+            ["Prospect pipeline", "yes /corp-prospects", "no", "New in v1.5"],
+            ["Cold email", "yes /corp-email", "no", "Templates only, no send"],
+            ["SEO pages", "yes /corp-seo", "no", "Generates prompts, not actual pages"],
+            ["Billing/MRR", "yes /corp-billing", "no", "No Stripe integration"],
+            ["HTML Dashboard", "yes /corp-html", "no", "Never opened in browser"],
+            ["GitHub sync", "yes /corp-sync", "no", "Needs real gh repo"],
+            ["Cost tracking", "yes /corp-costs", "no", "Needs real Pi sessions"]
+          ]
+        }
+      }
+    },
+    {
+      "id": "next",
+      "type": "single",
+      "question": "What do you want to do first?",
+      "weight": "critical",
+      "options": [
+        "Boot it up: /reload then /corp-agency then /corp-go live test",
+        "Ship something real: build Wael's actual agency website",
+        "Test the sales machine: add real prospects, send real emails",
+        "Dashboard demo: generate HTML dashboard, open in browser",
+        "Fix fragile stuff first: Windows test, Bun.spawn, real execution"
+      ],
+      "recommended": "Boot it up: /reload then /corp-agency then /corp-go live test",
+      "context": "You have 6.2k lines of untested code. The most valuable thing is to see if it actually works."
+    }
+  ]
+}

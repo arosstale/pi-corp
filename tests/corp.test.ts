@@ -422,21 +422,21 @@ describe("pi-corp", () => {
 
 	test("design agency bootstrap creates full company", () => {
 		const result = bootstrapAgency(db, "design", "TestCorp");
-		expect(result.agentCount).toBe(10);
-		expect(result.ticketCount).toBe(17);
-		expect(result.pipelineCount).toBe(3);
-		expect(result.projectIds.length).toBe(3);
+		expect(result.agentCount).toBe(9);
+		expect(result.ticketCount).toBe(18);
+		expect(result.pipelineCount).toBe(4);
+		expect(result.projectIds.length).toBe(4);
 		// Verify agents exist
 		const agents = db.query("SELECT * FROM agents").all();
-		expect(agents.length).toBe(10);
+		expect(agents.length).toBe(9);
 		// Verify tickets exist
 		const tickets = db.query("SELECT * FROM tickets").all();
-		expect(tickets.length).toBe(17);
+		expect(tickets.length).toBe(18);
 	});
 
 	test("seo agency bootstrap creates full company", () => {
 		const result = bootstrapAgency(db, "seo", "SEOCorp");
-		expect(result.agentCount).toBe(10);
+		expect(result.agentCount).toBe(9);
 		expect(result.ticketCount).toBe(12);
 		expect(result.projectIds.length).toBe(3);
 	});

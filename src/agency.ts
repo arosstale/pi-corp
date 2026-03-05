@@ -35,60 +35,67 @@ interface AgencyConfig {
 }
 
 const DESIGN_AGENCY: AgencyConfig = {
-	goal: "Build a fully autonomous design agency — client acquisition via SEO + cold outreach, delivery via AI agents",
-	description: "Clients find us via SEO/cold email. We design landing pages, brands, pitch decks, UI/UX. All AI-powered. Humans approve, agents execute.",
+	goal: "Autonomous web design agency — Wael handles sales calls, client relationships & backlinks. AI handles EVERYTHING else.",
+	description: "Wael is the face. He does calls, closes deals, builds backlink relationships, and manages clients. AI agents handle: site builds, design, content, SEO pages, cold email drafts, proposals, client dashboards, audits, and reporting. Wael should never touch Figma, code, or write copy.",
 	projects: [
-		{ name: "agency-site", description: "Our own website — portfolio, pricing, lead capture" },
-		{ name: "client-work", description: "Client deliverables — designs, landing pages, brands" },
-		{ name: "seo-engine", description: "Content + programmatic SEO for inbound leads" },
+		{ name: "agency-site", description: "Our website — portfolio, pricing, lead capture, SEO pages" },
+		{ name: "client-delivery", description: "Client builds — websites, landing pages, brands, design systems" },
+		{ name: "seo-machine", description: "Programmatic SEO, content, backlink prep (Wael sends the emails)" },
+		{ name: "sales-pipeline", description: "Prospect research, proposals, cold email drafts (Wael sends & closes)" },
 	],
 	agents: [
-		{ name: "Wael", role: "ceo", runtime: "claude-desktop", budget: 50, level: "ceo" },
+		// Wael is CEO but his actual job is: calls, relationships, backlinks
+		{ name: "Wael", role: "ceo", runtime: "claude-desktop", budget: 0, level: "ceo" },
+		// AI does everything else
 		{ name: "Creative-Director", role: "cto", runtime: "claude", budget: 100, level: "management" },
 		{ name: "Project-Manager", role: "lead", runtime: "pi", budget: 50, level: "management" },
-		{ name: "Designer-1", role: "designer", runtime: "claude", budget: 75, level: "worker" },
-		{ name: "Designer-2", role: "designer", runtime: "claude", budget: 75, level: "worker" },
-		{ name: "Frontend-Dev", role: "builder", runtime: "pi", budget: 75, level: "worker" },
+		{ name: "Site-Builder", role: "builder", runtime: "pi", budget: 75, level: "worker" },
 		{ name: "SEO-Builder", role: "builder", runtime: "codex", budget: 75, level: "worker" },
-		{ name: "Content-Writer", role: "marketer", runtime: "claude-desktop", budget: 75, level: "worker" },
-		{ name: "Scout", role: "scout", runtime: "gemini", budget: 25, level: "worker" },
-		{ name: "QA", role: "reviewer", runtime: "claude", budget: 50, level: "worker" },
+		{ name: "Designer", role: "designer", runtime: "claude", budget: 75, level: "worker" },
+		{ name: "Copywriter", role: "marketer", runtime: "claude-desktop", budget: 75, level: "worker" },
+		{ name: "Prospect-Scout", role: "scout", runtime: "gemini", budget: 25, level: "worker" },
+		{ name: "QA-Reviewer", role: "reviewer", runtime: "claude", budget: 50, level: "worker" },
 	],
 	tickets: [
-		// Agency site
-		{ project: 0, title: "Design agency portfolio site with 3 case studies", priority: 1, description: "Clean, modern design agency site. Show best work. Include before/after. Conversion-optimized." },
-		{ project: 0, title: "Build pricing page with 3 tiers", priority: 1, description: "Starter ($500/mo), Growth ($2k/mo), Scale ($5k/mo). Each tier: deliverables, turnaround, revisions." },
-		{ project: 0, title: "Set up Calendly/Cal.com booking for discovery calls", priority: 1 },
-		{ project: 0, title: "Build lead magnet: 'Free Landing Page Audit' tool", priority: 1, description: "Automated page audit: Lighthouse score, CTA analysis, mobile check, copy review. Email gate." },
-		{ project: 0, title: "Create 10 landing page templates for portfolio", priority: 2 },
-		// SEO engine
-		{ project: 2, title: "Research 100 keywords: 'landing page design [industry]'", priority: 1, description: "Target: 'landing page design for SaaS', 'landing page design for restaurants', etc. Long-tail, buyer intent." },
-		{ project: 2, title: "Build programmatic SEO: /landing-page-design/[industry] pages", priority: 1, description: "100 pages, each targeting '[industry] landing page design'. Unique intro, 3 examples, CTA to book call." },
-		{ project: 2, title: "Write 20 blog posts: 'How to design a [type] that converts'", priority: 2, description: "Types: SaaS landing page, restaurant website, portfolio site, ecommerce page, etc. 1500 words each, internal links." },
-		{ project: 2, title: "Build backlink outreach: guest posts on design blogs", priority: 2 },
-		{ project: 2, title: "Create comparison pages: 'WaelCorp vs [competitor]'", priority: 2 },
-		// Client work system
-		{ project: 1, title: "Build client intake form + automated brief generator", priority: 1, description: "Client fills form → AI generates creative brief → PM reviews → Designer starts. Automate the handoff." },
-		{ project: 1, title: "Create design system: components, colors, typography presets", priority: 1 },
-		{ project: 1, title: "Build client dashboard: project status, files, feedback", priority: 2 },
-		{ project: 1, title: "Set up automated revision workflow", priority: 2, description: "Client comments on Figma/preview → Designer gets ticket → Max 3 revisions per tier → Auto-close." },
-		// Cold outreach
-		{ project: 0, title: "Build prospect list: 500 SaaS founders without good landing pages", priority: 1, description: "Scrape ProductHunt launches, check their sites with Lighthouse. Bad scores = prospects." },
-		{ project: 0, title: "Write cold email sequence: 'Your landing page is losing you customers'", priority: 1, description: "4-email sequence. Email 1: specific problem on THEIR site. Email 2: case study. Email 3: free audit offer. Email 4: breakup." },
-		{ project: 0, title: "Set up cold DM campaign on Twitter/LinkedIn", priority: 2 },
+		// ── AGENCY SITE (Wael never touches this) ──
+		{ project: 0, title: "Build agency portfolio site — 5 case studies, before/after", priority: 1, description: "Modern, fast, conversion-optimized. Hero with social proof. 3 pricing tiers. Testimonials. CTA to book call with Wael." },
+		{ project: 0, title: "Pricing page: Starter $500, Growth $2k, Scale $5k", priority: 1, description: "Clear deliverables per tier. FAQ section. Annual discount. Trust badges." },
+		{ project: 0, title: "Build 'Free Website Audit' tool (email-gated lead magnet)", priority: 1, description: "Input: URL → Run Lighthouse + mobile check + CTA analysis + load time → PDF report. Captures email for Wael's follow-up." },
+		{ project: 0, title: "Set up Cal.com booking page for Wael's discovery calls", priority: 1 },
+
+		// ── SEO MACHINE (AI writes, Wael just builds backlinks manually) ──
+		{ project: 2, title: "Keyword research: 100 long-tail 'web design [city/industry]' keywords", priority: 1, description: "Targets: 'web design for dentists', 'landing page design NYC', etc. Vol>50, KD<30, buyer intent." },
+		{ project: 2, title: "Generate 100 programmatic SEO pages: /web-design/[keyword]", priority: 1, description: "Each page: unique 800-word intro, 3 portfolio examples, pricing CTA, local/industry-specific content. Schema markup." },
+		{ project: 2, title: "Write 30 blog posts targeting informational keywords", priority: 2, description: "'How much does a website cost in 2026', 'Best landing page examples', 'Website redesign checklist', etc. 1500 words, internal links to service pages." },
+		{ project: 2, title: "Create 10 comparison pages: 'WaelCorp vs [competitor]'", priority: 2 },
+		{ project: 2, title: "Prepare backlink outreach templates for Wael", priority: 2, description: "20 outreach email templates Wael can personalize. Guest post pitches, broken link replacements, resource page additions. Wael sends them — he has the relationships." },
+
+		// ── CLIENT DELIVERY (fully automated except Wael's kick-off call) ──
+		{ project: 1, title: "Build client onboarding: intake form → auto-generate creative brief", priority: 1, description: "After Wael closes: client fills form (brand, competitors, goals, examples) → AI generates brief + sitemap + wireframe → Wael approves → build starts." },
+		{ project: 1, title: "Create design system: 5 themes × color palettes × typography", priority: 1, description: "Reusable component library. Client picks a theme direction, AI customizes. Speed up delivery to 24-48h." },
+		{ project: 1, title: "Build client dashboard: project progress, preview links, feedback", priority: 2, description: "Client sees: timeline, preview URL, revision count remaining, files. No back-and-forth emails." },
+		{ project: 1, title: "Automated revision workflow: client comments → ticket → rebuild", priority: 2, description: "Client leaves feedback on preview → auto-creates revision ticket → designer agent rebuilds → max 3 rounds per tier." },
+		{ project: 1, title: "Auto-generate proposal + SOW from discovery call notes", priority: 1, description: "Wael takes call notes → AI generates branded proposal PDF with scope, timeline, price, terms. Wael just sends it." },
+
+		// ── SALES PIPELINE (AI preps, Wael sends & closes) ──
+		{ project: 3, title: "Build prospect scraper: find sites with bad Lighthouse scores", priority: 1, description: "Scan ProductHunt launches, Y Combinator companies, local businesses. Flag sites scoring <50 on Lighthouse. Output: company, URL, score, email, LinkedIn." },
+		{ project: 3, title: "Write cold email sequences Wael can send", priority: 1, description: "3 sequences: (1) 'Your site scores 34/100' — 4 emails with their actual score. (2) 'We redesigned [similar company]' — case study angle. (3) 'Free audit for [industry]' — lead magnet angle. Wael personalizes first line and sends." },
+		{ project: 3, title: "Generate weekly prospect list: 50 new leads for Wael", priority: 2, description: "Every week: scout agent finds 50 new companies with bad websites. Generates personalized first lines. Wael just copy-pastes into his outreach tool." },
+		{ project: 3, title: "Build proposal template that auto-fills from call notes", priority: 2 },
 	],
 	pipelines: [
 		{ type: "waelcorp", project: 0 },
 		{ type: "content", project: 2 },
 		{ type: "growth", project: 0 },
+		{ type: "evergreen", project: 2 },
 	],
 	apps: [
 		{ name: "GitHub", type: "github", project: 0 },
 		{ name: "Vercel", type: "deploy", project: 0 },
-		{ name: "Resend", type: "email", project: 0 },
-		{ name: "Stripe", type: "payments", project: 0 },
+		{ name: "Resend", type: "email", project: 3 },
+		{ name: "Stripe", type: "payments", project: 1 },
 		{ name: "Analytics", type: "analytics", project: 0 },
-		{ name: "Cal.com", type: "calendar", project: 0 },
+		{ name: "Cal.com", type: "calendar", project: 3 },
 	],
 };
 

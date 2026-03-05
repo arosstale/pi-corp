@@ -113,6 +113,34 @@ function migrate(db: Database): void {
 			ticket_id TEXT REFERENCES tickets(id),
 			created_at TEXT DEFAULT (datetime('now'))
 		);
+
+		CREATE TABLE IF NOT EXISTS skillkits (
+			role TEXT PRIMARY KEY,
+			skills TEXT NOT NULL,
+			updated_at TEXT DEFAULT (datetime('now'))
+		);
+
+		CREATE TABLE IF NOT EXISTS cycles (
+			id TEXT PRIMARY KEY,
+			goal_id TEXT REFERENCES goals(id),
+			project_id TEXT REFERENCES projects(id),
+			phase TEXT DEFAULT 'plan',
+			iteration INTEGER DEFAULT 1,
+			max_iterations INTEGER DEFAULT 10,
+			progress_log TEXT DEFAULT '',
+			started_at TEXT DEFAULT (datetime('now')),
+			completed_at TEXT
+		);
+
+		CREATE TABLE IF NOT EXISTS apps (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			type TEXT NOT NULL,
+			config TEXT,
+			project_id TEXT REFERENCES projects(id),
+			status TEXT DEFAULT 'active',
+			created_at TEXT DEFAULT (datetime('now'))
+		);
 	`);
 }
 

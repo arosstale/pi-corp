@@ -2,17 +2,20 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
 import { getDb, closeDb } from "../src/db.js";
-import { hireAgent, listAgents, getOrgTree, type Role, type Runtime, type OrgNode, ROLES, RUNTIMES } from "../src/org.js";
+import { hireAgent, listAgents, getOrgTree, type Role, type Runtime, type OrgNode, ROLES, RUNTIMES, buildCommand } from "../src/org.js";
 import { createGoal, listGoals, createProject, listProjects } from "../src/goals.js";
 import { createTicket, listTickets, importPrd } from "../src/tickets.js";
 import { matchTicketsToAgents, dispatchRun, completeRun, failRun, listRuns, getStats } from "../src/dispatch.js";
+import { DEFAULT_SKILLKITS, getSkillkit, buildSkillInjection } from "../src/skillkits.js";
+import { createCycle, listCycles, advancePhase, appendProgress, getPhaseWork, type CyclePhase } from "../src/devcycle.js";
+import { registerApp, listApps, type AppType } from "../src/apps.js";
 
 export default function (pi: ExtensionAPI) {
 
 	// ── Dashboard ──
 
 	pi.registerCommand("corp", {
-		description: "Show autonomous corp dashboard — goals, org, tickets, runs, costs",
+		description: "Autonomous corp dashboard — goals, org, cycles, tickets, apps, costs",
 		parameters: Type.Object({}),
 		execute: async () => {
 			const db = getDb();
@@ -21,47 +24,69 @@ export default function (pi: ExtensionAPI) {
 			const org = getOrgTree(db);
 			const tickets = listTickets(db);
 			const runs = listRuns(db, "running");
+			const cycles = listCycles(db);
+			const apps = listApps(db);
 
 			const lines: string[] = [];
-			lines.push("╔══════════════════════════════════════════════════╗");
-			lines.push("║            🏢  AUTONOMOUS CORP  v0.1            ║");
-			lines.push("╚══════════════════════════════════════════════════╝");
+			lines.push("╔══════════════════════════════════════════════════════════╗");
+			lines.push("║              🏢  AUTONOMOUS CORP  v0.2                  ║");
+			lines.push("║  Goal → Plan → Build → Test → Deploy → Measure → Loop  ║");
+			lines.push("╚══════════════════════════════════════════════════════════╝");
 			lines.push("");
 
 			// Stats bar
-			lines.push(`  Goals: ${stats.goals}  Projects: ${stats.projects}  Agents: ${stats.agents}  Cost: $${stats.totalCost.toFixed(2)}  Tokens: ${(stats.totalTokens / 1000).toFixed(0)}k`);
-			lines.push(`  Tickets: ${stats.tickets.todo} todo │ ${stats.tickets.in_progress} working │ ${stats.tickets.done} done │ ${stats.tickets.failed} failed`);
-			lines.push(`  Runs: ${stats.runs.running} running │ ${stats.runs.completed} completed │ ${stats.runs.failed} failed`);
+			lines.push(`  Goals: ${stats.goals}  Projects: ${stats.projects}  Agents: ${stats.agents}  Apps: ${apps.length}  Cost: $${stats.totalCost.toFixed(2)}  Tokens: ${(stats.totalTokens / 1000).toFixed(0)}k`);
+			lines.push(`  Tickets: ${stats.tickets.todo} todo │ ${stats.tickets.in_progress} wip │ ${stats.tickets.done} done │ ${stats.tickets.failed} fail`);
+			lines.push(`  Runs: ${stats.runs.running} running │ ${stats.runs.completed} ok │ ${stats.runs.failed} fail`);
 			lines.push("");
+
+			// Active cycles
+			if (cycles.length > 0) {
+				lines.push("── DEVCYCLE ───────────────────────────────────────────────");
+				for (const c of cycles) {
+					const phases = ["plan", "build", "test", "review", "deploy", "measure", "iterate"];
+					const bar = phases.map((p) => p === c.phase ? `[${p.toUpperCase()}]` : ` ${p} `).join(" → ");
+					lines.push(`  🔄 Cycle ${c.id.slice(0, 6)} iter:${c.iteration}/${c.max_iterations}`);
+					lines.push(`     ${bar}`);
+				}
+				lines.push("");
+			}
 
 			// Goals
 			if (goals.length > 0) {
-				lines.push("── GOALS ──────────────────────────────────────────");
-				for (const g of goals) {
-					lines.push(`  🎯 ${g.title}`);
-				}
+				lines.push("── GOALS ──────────────────────────────────────────────────");
+				for (const g of goals) lines.push(`  🎯 ${g.title}`);
 				lines.push("");
 			}
 
 			// Org chart (recursive)
 			if (org.length > 0) {
-				lines.push("── ORG CHART ──────────────────────────────────────");
+				lines.push("── ORG CHART ──────────────────────────────────────────────");
 				function renderNode(node: OrgNode, indent: number, isLast: boolean): void {
 					const a = node.agent;
 					const budget = a.budget_monthly > 0 ? ` $${a.spent_monthly.toFixed(2)}/$${a.budget_monthly.toFixed(0)}` : "";
 					const icon = a.status === "working" ? "🔵" : a.status === "idle" ? "⚪" : "🔴";
+					const skills = getSkillkit(db, a.role);
+					const skillTag = skills.length > 0 ? ` (${skills.length} skills)` : "";
 					const prefix = indent === 0 ? "  " : "  " + "    ".repeat(indent - 1) + (isLast ? "└─ " : "├─ ");
-					lines.push(`${prefix}${icon} ${a.name} (${a.role}) [${a.runtime}]${budget}`);
+					lines.push(`${prefix}${icon} ${a.name} (${a.role}) [${a.runtime}]${budget}${skillTag}`);
 					node.reports.forEach((child, i) => renderNode(child, indent + 1, i === node.reports.length - 1));
 				}
 				org.forEach((node, i) => renderNode(node, 0, i === org.length - 1));
 				lines.push("");
 			}
 
+			// Apps
+			if (apps.length > 0) {
+				lines.push("── APPS ───────────────────────────────────────────────────");
+				for (const a of apps) lines.push(`  📱 ${a.name} (${a.type})`);
+				lines.push("");
+			}
+
 			// Active tickets
 			const active = tickets.filter((t) => t.status !== "done" && t.status !== "cancelled").slice(0, 10);
 			if (active.length > 0) {
-				lines.push("── TICKETS ────────────────────────────────────────");
+				lines.push("── TICKETS ────────────────────────────────────────────────");
 				for (const t of active) {
 					const icon = t.status === "in_progress" ? "🔵" : t.status === "failed" ? "🔴" : "⬜";
 					lines.push(`  ${icon} [P${t.priority}] ${t.title} (${t.status})`);
@@ -71,7 +96,7 @@ export default function (pi: ExtensionAPI) {
 
 			// Running
 			if (runs.length > 0) {
-				lines.push("── RUNNING ────────────────────────────────────────");
+				lines.push("── RUNNING ────────────────────────────────────────────────");
 				for (const r of runs) {
 					lines.push(`  ⚡ run:${r.id.slice(0, 6)} ticket:${r.ticket_id.slice(0, 6)} agent:${r.agent_id.slice(0, 6)} attempt:${r.attempt}`);
 				}
@@ -79,12 +104,65 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			if (stats.goals === 0 && stats.agents === 0) {
-				lines.push("  Empty corp. Start with:");
-				lines.push('  /corp-goal title="Build the best AI app"');
-				lines.push('  /corp-hire name="Builder-1" role="builder" runtime="pi"');
-				lines.push('  /corp-ticket title="Set up project scaffolding"');
+				lines.push("  Empty corp. Try: /corp-bootstrap");
 			}
 
+			return Text(lines.join("\n"));
+		},
+	});
+
+	// ── Bootstrap ──
+
+	pi.registerCommand("corp-bootstrap", {
+		description: "Bootstrap a full autonomous corp with default org, skillkits, and apps",
+		parameters: Type.Object({
+			goalTitle: Type.String({ description: "Company goal" }),
+			projectName: Type.String({ description: "Project name" }),
+			repo: Type.Optional(Type.String({ description: "Git repo path" })),
+		}),
+		execute: async ({ goalTitle, projectName, repo }) => {
+			const db = getDb();
+			const lines: string[] = ["🏗️  Bootstrapping autonomous corp...", ""];
+
+			// Goal & Project
+			const goal = createGoal(db, goalTitle);
+			const project = createProject(db, projectName, goal.id, repo);
+			lines.push(`  🎯 Goal: ${goal.title}`);
+			lines.push(`  📁 Project: ${project.name}`);
+
+			// Org
+			const ceo = hireAgent(db, "CEO", "ceo", "claude-desktop", { budget: 200 });
+			const cto = hireAgent(db, "CTO", "cto", "claude", { reportsTo: ceo.id, budget: 100 });
+			const lead = hireAgent(db, "Lead", "lead", "pi", { reportsTo: cto.id, budget: 50 });
+			const b1 = hireAgent(db, "Builder-1", "builder", "pi", { reportsTo: lead.id, budget: 30 });
+			const b2 = hireAgent(db, "Builder-2", "builder", "codex", { reportsTo: lead.id, budget: 30 });
+			const scout = hireAgent(db, "Scout", "scout", "gemini", { reportsTo: cto.id, budget: 15 });
+			const reviewer = hireAgent(db, "Reviewer", "reviewer", "claude", { reportsTo: cto.id, budget: 20 });
+			const designer = hireAgent(db, "Designer", "designer", "claude", { reportsTo: lead.id, budget: 20 });
+			const marketer = hireAgent(db, "Marketer", "marketer", "claude-desktop", { reportsTo: ceo.id, budget: 30 });
+			lines.push(`  👥 Org: 9 agents hired (CEO → CTO → Lead → 5 specialists + Marketer)`);
+
+			// Apps
+			registerApp(db, "GitHub", "github", { projectId: project.id, config: { owner: "arosstale" } });
+			registerApp(db, "Gmail", "gmail", { projectId: project.id });
+			registerApp(db, "Calendar", "calendar", { projectId: project.id });
+			registerApp(db, "Vercel", "deploy", { projectId: project.id });
+			registerApp(db, "Analytics", "analytics", { projectId: project.id });
+			lines.push(`  📱 Apps: GitHub, Gmail, Calendar, Vercel, Analytics`);
+
+			// Skillkits summary
+			const totalSkills = Object.values(DEFAULT_SKILLKITS).reduce((sum, s) => sum + s.length, 0);
+			lines.push(`  🧠 Skillkits: ${Object.keys(DEFAULT_SKILLKITS).length} roles × ${totalSkills} total skills`);
+			for (const [role, skills] of Object.entries(DEFAULT_SKILLKITS)) {
+				lines.push(`     ${role}: ${skills.map((s) => s.name).join(", ")}`);
+			}
+
+			// Start cycle
+			const cycle = createCycle(db, goal.id, project.id);
+			lines.push(`  🔄 DevCycle started: ${cycle.id.slice(0, 6)} (phase: plan, max: 10 iterations)`);
+
+			lines.push("");
+			lines.push("  ✅ Corp ready. Run /corp to see dashboard, /corp-cycle to advance.");
 			return Text(lines.join("\n"));
 		},
 	});
@@ -108,13 +186,13 @@ export default function (pi: ExtensionAPI) {
 		description: "Create a project under a goal",
 		parameters: Type.Object({
 			name: Type.String({ description: "Project name" }),
-			goalId: Type.Optional(Type.String({ description: "Goal ID to attach to" })),
+			goalId: Type.Optional(Type.String({ description: "Goal ID" })),
 			repo: Type.Optional(Type.String({ description: "Git repo path" })),
 		}),
 		execute: async ({ name, goalId, repo }) => {
 			const db = getDb();
 			const project = createProject(db, name, goalId, repo);
-			return Text(`📁 Project created: ${project.name} (${project.id})`);
+			return Text(`📁 Project: ${project.name} (${project.id})`);
 		},
 	});
 
@@ -127,17 +205,18 @@ export default function (pi: ExtensionAPI) {
 			role: Type.String({ description: `Role: ${ROLES.join(", ")}` }),
 			runtime: Type.String({ description: `Runtime: ${RUNTIMES.join(", ")}` }),
 			model: Type.Optional(Type.String({ description: "Model override" })),
-			reportsTo: Type.Optional(Type.String({ description: "ID of manager agent" })),
-			budget: Type.Optional(Type.Number({ description: "Monthly budget in USD" })),
+			reportsTo: Type.Optional(Type.String({ description: "Manager agent ID" })),
+			budget: Type.Optional(Type.Number({ description: "Monthly budget USD" })),
 		}),
 		execute: async ({ name, role, runtime, model, reportsTo, budget }) => {
 			const db = getDb();
 			const agent = hireAgent(db, name, role as Role, runtime as Runtime, { model, reportsTo, budget });
-			return Text(`🤝 Hired: ${agent.name} as ${agent.role} using ${agent.runtime}${budget ? ` ($${budget}/mo)` : ""}`);
+			const skills = getSkillkit(db, role);
+			return Text(`🤝 Hired: ${agent.name} as ${agent.role} [${agent.runtime}]${budget ? ` ($${budget}/mo)` : ""}\n   Skills: ${skills.map((s) => s.name).join(", ") || "none"}`);
 		},
 	});
 
-	// ── Ticket Management ──
+	// ── Tickets ──
 
 	pi.registerCommand("corp-ticket", {
 		description: "Create a ticket",
@@ -145,20 +224,20 @@ export default function (pi: ExtensionAPI) {
 			title: Type.String({ description: "Ticket title" }),
 			projectId: Type.Optional(Type.String({ description: "Project ID" })),
 			description: Type.Optional(Type.String({ description: "Description" })),
-			priority: Type.Optional(Type.Number({ description: "Priority 1-5 (1=highest)" })),
+			priority: Type.Optional(Type.Number({ description: "Priority 1-5" })),
 		}),
 		execute: async ({ title, projectId, description, priority }) => {
 			const db = getDb();
 			const ticket = createTicket(db, title, { projectId, description, priority });
-			return Text(`🎫 Ticket created: [P${ticket.priority}] ${ticket.title} (${ticket.id})`);
+			return Text(`🎫 [P${ticket.priority}] ${ticket.title} (${ticket.id})`);
 		},
 	});
 
 	pi.registerCommand("corp-prd", {
-		description: "Import a PRD JSON file as tickets (Ralph pattern)",
+		description: "Import PRD JSON as tickets (Ralph pattern)",
 		parameters: Type.Object({
-			file: Type.String({ description: "Path to PRD JSON file" }),
-			projectId: Type.String({ description: "Project ID to create tickets under" }),
+			file: Type.String({ description: "Path to PRD JSON" }),
+			projectId: Type.String({ description: "Project ID" }),
 		}),
 		execute: async ({ file, projectId }) => {
 			const db = getDb();
@@ -167,32 +246,112 @@ export default function (pi: ExtensionAPI) {
 			const stories = prd.userStories ?? prd.stories ?? prd;
 			if (!Array.isArray(stories)) return Text("❌ PRD must contain an array of stories");
 			const tickets = importPrd(db, projectId, stories);
-			return Text(`📋 Imported ${tickets.length} stories as tickets from PRD`);
+			return Text(`📋 Imported ${tickets.length} stories as tickets`);
+		},
+	});
+
+	// ── Apps ──
+
+	pi.registerCommand("corp-app", {
+		description: "Register an app/integration",
+		parameters: Type.Object({
+			name: Type.String({ description: "App name" }),
+			type: Type.String({ description: "github, gmail, calendar, analytics, deploy, payments, social, docs, drive, custom" }),
+			projectId: Type.Optional(Type.String({ description: "Project ID" })),
+		}),
+		execute: async ({ name, type, projectId }) => {
+			const db = getDb();
+			const app = registerApp(db, name, type as AppType, { projectId });
+			return Text(`📱 App registered: ${app.name} (${app.type})`);
+		},
+	});
+
+	// ── DevCycle ──
+
+	pi.registerCommand("corp-cycle", {
+		description: "Show or advance the current DevCycle phase",
+		parameters: Type.Object({
+			advance: Type.Optional(Type.Boolean({ description: "Advance to next phase" })),
+		}),
+		execute: async ({ advance }) => {
+			const db = getDb();
+			const cycles = listCycles(db);
+			if (cycles.length === 0) return Text("No active cycles. Use /corp-bootstrap to start.");
+
+			const cycle = cycles[0]!;
+			if (advance) {
+				const next = advancePhase(db, cycle.id);
+				const work = getPhaseWork(next);
+				const lines = [`🔄 Advanced to: ${next.toUpperCase()} (iter ${cycle.iteration})`];
+				if (work.length > 0) {
+					lines.push("  Work for this phase:");
+					for (const w of work) lines.push(`    ${w.role}: ${w.task}`);
+				}
+				return Text(lines.join("\n"));
+			}
+
+			// Show current phase
+			const work = getPhaseWork(cycle.phase);
+			const phases = ["plan", "build", "test", "review", "deploy", "measure", "iterate"];
+			const bar = phases.map((p) => p === cycle.phase ? `[${p.toUpperCase()}]` : ` ${p} `).join(" → ");
+			const lines = [
+				`🔄 Cycle ${cycle.id.slice(0, 6)} — iteration ${cycle.iteration}/${cycle.max_iterations}`,
+				`   ${bar}`,
+				"",
+				"  Phase work:",
+			];
+			for (const w of work) lines.push(`    ${w.role}: ${w.task}`);
+			return Text(lines.join("\n"));
 		},
 	});
 
 	// ── Dispatch ──
 
 	pi.registerCommand("corp-dispatch", {
-		description: "Match and dispatch todo tickets to available agents",
+		description: "Match and dispatch todo tickets to available agents (with skills)",
 		parameters: Type.Object({
-			dryRun: Type.Optional(Type.Boolean({ description: "Show matches without dispatching" })),
+			dryRun: Type.Optional(Type.Boolean({ description: "Preview without dispatching" })),
 		}),
 		execute: async ({ dryRun }) => {
 			const db = getDb();
 			const matches = matchTicketsToAgents(db);
-			if (matches.length === 0) return Text("No tickets to dispatch (no todo tickets or no idle agents)");
+			if (matches.length === 0) return Text("No tickets to dispatch");
 
 			const lines: string[] = [];
 			for (const { ticket, agent } of matches) {
+				const skills = getSkillkit(db, agent.role);
+				const skillNames = skills.map((s) => s.name).join(", ");
 				if (dryRun) {
-					lines.push(`  [dry] ${ticket.title} → ${agent.name} (${agent.runtime})`);
+					lines.push(`  [dry] ${ticket.title} → ${agent.name} [${agent.runtime}] (${skillNames})`);
 				} else {
 					const run = dispatchRun(db, ticket.id, agent.id);
-					lines.push(`  ⚡ ${ticket.title} → ${agent.name} (run:${run.id.slice(0, 6)})`);
+					lines.push(`  ⚡ ${ticket.title} → ${agent.name} [${agent.runtime}] (run:${run.id.slice(0, 6)}) skills: ${skillNames}`);
 				}
 			}
-			return Text(`${dryRun ? "Would dispatch" : "Dispatched"} ${matches.length} tickets:\n${lines.join("\n")}`);
+			return Text(`${dryRun ? "Would dispatch" : "Dispatched"} ${matches.length}:\n${lines.join("\n")}`);
+		},
+	});
+
+	// ── Skillkits ──
+
+	pi.registerCommand("corp-skills", {
+		description: "Show skillkits for all roles",
+		parameters: Type.Object({
+			role: Type.Optional(Type.String({ description: "Filter to specific role" })),
+		}),
+		execute: async ({ role }) => {
+			const db = getDb();
+			const lines: string[] = ["── SKILLKITS ──────────────────────────────────────────────"];
+			const roles = role ? [role] : Object.keys(DEFAULT_SKILLKITS);
+			for (const r of roles) {
+				const skills = getSkillkit(db, r);
+				lines.push(`  ${r}:`);
+				for (const s of skills) {
+					const src = s.source === "repo" ? ` (${s.repoUrl?.split("/").pop()})` : "";
+					lines.push(`    • ${s.name}${src}`);
+				}
+			}
+			return Text(lines.join("\n"));
 		},
 	});
 
@@ -200,38 +359,91 @@ export default function (pi: ExtensionAPI) {
 
 	pi.addLLMTool({
 		name: "corp_dashboard",
-		description: "Get autonomous corp status: goals, org chart, tickets, runs, costs",
+		description: "Get full autonomous corp status: goals, org, cycles, tickets, apps, costs, skillkits",
 		parameters: Type.Object({}),
 		execute: async () => {
 			const db = getDb();
 			const stats = getStats(db);
 			const agents = listAgents(db);
 			const tickets = listTickets(db);
-			return JSON.stringify({ stats, agents: agents.slice(0, 20), tickets: tickets.slice(0, 20) });
+			const cycles = listCycles(db);
+			const apps = listApps(db);
+			const skillkits = Object.fromEntries(
+				Object.keys(DEFAULT_SKILLKITS).map((role) => [role, getSkillkit(db, role).map((s) => s.name)])
+			);
+			return JSON.stringify({ stats, agents: agents.slice(0, 20), tickets: tickets.slice(0, 20), cycles, apps, skillkits });
+		},
+	});
+
+	pi.addLLMTool({
+		name: "corp_bootstrap",
+		description: "Bootstrap an autonomous corp: create goal, project, 9 agents, 5 apps, start DevCycle",
+		parameters: Type.Object({
+			goalTitle: Type.String(),
+			projectName: Type.String(),
+			repo: Type.Optional(Type.String()),
+		}),
+		execute: async ({ goalTitle, projectName, repo }) => {
+			const db = getDb();
+			const goal = createGoal(db, goalTitle);
+			const project = createProject(db, projectName, goal.id, repo);
+			const ceo = hireAgent(db, "CEO", "ceo", "claude-desktop", { budget: 200 });
+			const cto = hireAgent(db, "CTO", "cto", "claude", { reportsTo: ceo.id, budget: 100 });
+			const lead = hireAgent(db, "Lead", "lead", "pi", { reportsTo: cto.id, budget: 50 });
+			hireAgent(db, "Builder-1", "builder", "pi", { reportsTo: lead.id, budget: 30 });
+			hireAgent(db, "Builder-2", "builder", "codex", { reportsTo: lead.id, budget: 30 });
+			hireAgent(db, "Scout", "scout", "gemini", { reportsTo: cto.id, budget: 15 });
+			hireAgent(db, "Reviewer", "reviewer", "claude", { reportsTo: cto.id, budget: 20 });
+			hireAgent(db, "Designer", "designer", "claude", { reportsTo: lead.id, budget: 20 });
+			hireAgent(db, "Marketer", "marketer", "claude-desktop", { reportsTo: ceo.id, budget: 30 });
+			registerApp(db, "GitHub", "github", { projectId: project.id });
+			registerApp(db, "Gmail", "gmail", { projectId: project.id });
+			registerApp(db, "Calendar", "calendar", { projectId: project.id });
+			registerApp(db, "Vercel", "deploy", { projectId: project.id });
+			registerApp(db, "Analytics", "analytics", { projectId: project.id });
+			const cycle = createCycle(db, goal.id, project.id);
+			return JSON.stringify({ goalId: goal.id, projectId: project.id, cycleId: cycle.id, agents: 9, apps: 5 });
+		},
+	});
+
+	pi.addLLMTool({
+		name: "corp_advance_cycle",
+		description: "Advance the DevCycle to the next phase (plan→build→test→review→deploy→measure→iterate→build...)",
+		parameters: Type.Object({
+			cycleId: Type.Optional(Type.String({ description: "Cycle ID (uses latest if omitted)" })),
+		}),
+		execute: async ({ cycleId }) => {
+			const db = getDb();
+			let id = cycleId;
+			if (!id) {
+				const cycles = listCycles(db);
+				if (cycles.length === 0) return JSON.stringify({ error: "No active cycles" });
+				id = cycles[0]!.id;
+			}
+			const next = advancePhase(db, id!);
+			const work = getPhaseWork(next);
+			return JSON.stringify({ phase: next, work });
 		},
 	});
 
 	pi.addLLMTool({
 		name: "corp_hire",
-		description: "Hire an agent into the autonomous corp",
+		description: "Hire an agent with role-based skillkit",
 		parameters: Type.Object({
-			name: Type.String(),
-			role: Type.String({ description: "ceo, cto, lead, builder, scout, reviewer, designer, marketer" }),
-			runtime: Type.String({ description: "pi, claude, codex, gemini, aider, goose, amp, claude-desktop" }),
-			model: Type.Optional(Type.String()),
-			reportsTo: Type.Optional(Type.String()),
-			budget: Type.Optional(Type.Number()),
+			name: Type.String(), role: Type.String(), runtime: Type.String(),
+			model: Type.Optional(Type.String()), reportsTo: Type.Optional(Type.String()), budget: Type.Optional(Type.Number()),
 		}),
 		execute: async ({ name, role, runtime, model, reportsTo, budget }) => {
 			const db = getDb();
 			const agent = hireAgent(db, name, role as Role, runtime as Runtime, { model, reportsTo, budget });
-			return JSON.stringify(agent);
+			const skills = getSkillkit(db, role).map((s) => s.name);
+			return JSON.stringify({ ...agent, skills });
 		},
 	});
 
 	pi.addLLMTool({
 		name: "corp_dispatch",
-		description: "Match todo tickets to idle agents and dispatch runs",
+		description: "Match and dispatch todo tickets to idle agents with their skillkits",
 		parameters: Type.Object({}),
 		execute: async () => {
 			const db = getDb();
@@ -239,7 +451,9 @@ export default function (pi: ExtensionAPI) {
 			const results = [];
 			for (const { ticket, agent } of matches) {
 				const run = dispatchRun(db, ticket.id, agent.id);
-				results.push({ ticketId: ticket.id, agentId: agent.id, runId: run.id });
+				const skills = getSkillkit(db, agent.role).map((s) => s.name);
+				const cmd = buildCommand(agent.runtime as Runtime, buildSkillInjection(getSkillkit(db, agent.role)) + ticket.title, agent.model);
+				results.push({ ticketId: ticket.id, agentId: agent.id, runId: run.id, skills, command: cmd });
 			}
 			return JSON.stringify({ dispatched: results.length, runs: results });
 		},
@@ -247,12 +461,10 @@ export default function (pi: ExtensionAPI) {
 
 	pi.addLLMTool({
 		name: "corp_create_ticket",
-		description: "Create a ticket in the autonomous corp",
+		description: "Create a ticket",
 		parameters: Type.Object({
-			title: Type.String(),
-			description: Type.Optional(Type.String()),
-			projectId: Type.Optional(Type.String()),
-			priority: Type.Optional(Type.Number()),
+			title: Type.String(), description: Type.Optional(Type.String()),
+			projectId: Type.Optional(Type.String()), priority: Type.Optional(Type.Number()),
 		}),
 		execute: async ({ title, description, projectId, priority }) => {
 			const db = getDb();
@@ -263,13 +475,10 @@ export default function (pi: ExtensionAPI) {
 
 	pi.addLLMTool({
 		name: "corp_complete_run",
-		description: "Mark a run as completed with results",
+		description: "Mark a run as completed",
 		parameters: Type.Object({
-			runId: Type.String(),
-			output: Type.Optional(Type.String()),
-			cost: Type.Optional(Type.Number()),
-			inputTokens: Type.Optional(Type.Number()),
-			outputTokens: Type.Optional(Type.Number()),
+			runId: Type.String(), output: Type.Optional(Type.String()),
+			cost: Type.Optional(Type.Number()), inputTokens: Type.Optional(Type.Number()), outputTokens: Type.Optional(Type.Number()),
 		}),
 		execute: async ({ runId, output, cost, inputTokens, outputTokens }) => {
 			const db = getDb();
@@ -281,14 +490,25 @@ export default function (pi: ExtensionAPI) {
 	pi.addLLMTool({
 		name: "corp_fail_run",
 		description: "Mark a run as failed",
-		parameters: Type.Object({
-			runId: Type.String(),
-			error: Type.String(),
-		}),
+		parameters: Type.Object({ runId: Type.String(), error: Type.String() }),
 		execute: async ({ runId, error }) => {
 			const db = getDb();
 			failRun(db, runId, error);
 			return JSON.stringify({ status: "failed", runId });
+		},
+	});
+
+	pi.addLLMTool({
+		name: "corp_register_app",
+		description: "Register an external app/integration (github, gmail, deploy, analytics, etc.)",
+		parameters: Type.Object({
+			name: Type.String(), type: Type.String(), projectId: Type.Optional(Type.String()),
+			config: Type.Optional(Type.Object({})),
+		}),
+		execute: async ({ name, type, projectId, config }) => {
+			const db = getDb();
+			const app = registerApp(db, name, type as AppType, { projectId, config: config as Record<string, unknown> });
+			return JSON.stringify(app);
 		},
 	});
 }

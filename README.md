@@ -1,11 +1,14 @@
 # pi-corp
 
-Autonomous corp dashboard as a pi extension. Combines:
+Autonomous corp dashboard as a pi extension. Set a goal, bootstrap a company, let the DevCycle run.
 
-- **Paperclip** concepts: goals, org charts, budgets, governance
-- **Symphony** concepts: ticket-driven dispatch, workspace-per-issue, retry/reconciliation
-- **Ralph** concepts: PRD → stories → iterate until done
-- **Overstory** integration: multi-agent orchestration via `ov`
+Combines:
+- **Paperclip**: goals, org charts, budgets, governance, role-based agents
+- **Symphony**: ticket-driven dispatch, workspace-per-issue, reconciliation
+- **Ralph**: PRD → stories → iterate until done, progress.txt memory
+- **Compound/DevCycle**: Goal → Plan → Build → Test → Review → Deploy → Measure → Iterate
+- **Skillkits**: each role gets curated skills (marketing skills from coreyhaines31/marketingskills, coding skills from pi ecosystem)
+- **Apps**: GitHub, Gmail, Calendar, Vercel, Analytics — agents use real tools
 
 One SQLite DB at `~/.pi-corp/corp.db`. No Postgres, no Redis, no React server.
 
@@ -15,37 +18,71 @@ One SQLite DB at `~/.pi-corp/corp.db`. No Postgres, no Redis, no React server.
 pi install path:~/Projects/pi-corp
 ```
 
+## Quick Start
+
+```
+/corp-bootstrap goalTitle="Build the #1 AI note-taking app" projectName="notesapp" repo="~/Projects/notesapp"
+/corp
+/corp-cycle
+/corp-cycle advance=true
+/corp-dispatch
+/corp
+```
+
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `/corp` | Dashboard — goals, org chart, tickets, runs, costs |
+| `/corp` | Full dashboard — goals, org, cycles, tickets, apps, costs |
+| `/corp-bootstrap` | One-shot: create goal + 9 agents + 5 apps + start DevCycle |
 | `/corp-goal` | Create a company goal |
-| `/corp-project` | Create a project under a goal |
-| `/corp-hire` | Hire an agent (role + runtime + budget) |
+| `/corp-project` | Create a project |
+| `/corp-hire` | Hire an agent with role + runtime + budget + skillkit |
 | `/corp-ticket` | Create a ticket |
 | `/corp-prd` | Import PRD JSON as tickets (Ralph pattern) |
-| `/corp-dispatch` | Match todo tickets to idle agents and dispatch |
+| `/corp-app` | Register an app/integration |
+| `/corp-cycle` | Show or advance the DevCycle phase |
+| `/corp-dispatch` | Match tickets to idle agents and dispatch |
+| `/corp-skills` | Show skillkits for all roles |
 
-## LLM Tools
+## LLM Tools (9)
 
-The agent can call `corp_dashboard`, `corp_hire`, `corp_dispatch`, `corp_create_ticket`, `corp_complete_run`, `corp_fail_run` as tool calls during conversation.
+`corp_dashboard`, `corp_bootstrap`, `corp_advance_cycle`, `corp_hire`, `corp_dispatch`, `corp_create_ticket`, `corp_complete_run`, `corp_fail_run`, `corp_register_app`
 
-## Worker Runtimes
+## Org Roles (8)
+
+| Role | Default Runtime | Skills |
+|------|----------------|--------|
+| ceo | claude-desktop | brainstorm, fabric-patterns, alex-hormozi-pitch, pai-algorithm |
+| cto | claude | brainstorm, context-engineering, cost-pipeline, security-review, john-carmack |
+| lead | pi | brainstorm, review, commit, tdd-workflow, context-driven-dev |
+| builder | pi/codex | commit, review, tdd-workflow, frontend-design, code-simplifier, bug-scanner |
+| scout | gemini | librarian, research-lead, github-repo-search, web-search |
+| reviewer | claude | review, security-review, code-simplifier, bug-scanner |
+| designer | claude | frontend-design, canvas-design, algorithmic-art, web-design-guidelines, visual-explainer |
+| marketer | claude-desktop | product-marketing-context, copywriting, seo-audit, page-cro, content-strategy, email-sequence, launch-strategy, analytics-tracking, pricing-strategy, alex-hormozi-pitch |
+
+## Worker Runtimes (8)
 
 pi, claude, codex, gemini, aider, goose, amp, claude-desktop
 
-## Quick Start
+## DevCycle Phases
 
 ```
-/corp-goal title="Build the #1 AI note-taking app to $1M MRR"
-/corp-project name="notesapp" goalId="<goal-id>" repo="~/Projects/notesapp"
-/corp-hire name="CTO" role="cto" runtime="claude" budget=100
-/corp-hire name="Builder-1" role="builder" runtime="pi" budget=50 reportsTo="<cto-id>"
-/corp-hire name="Builder-2" role="builder" runtime="codex" budget=50 reportsTo="<cto-id>"
-/corp-hire name="Scout-1" role="scout" runtime="gemini" budget=10 reportsTo="<cto-id>"
-/corp-ticket title="Set up Next.js scaffolding" projectId="<project-id>" priority=1
-/corp-ticket title="Add authentication" projectId="<project-id>" priority=2
-/corp-dispatch
-/corp
+Goal → [PLAN] → BUILD → TEST → REVIEW → DEPLOY → MEASURE → ITERATE → BUILD → ...
 ```
+
+Each phase dispatches specific roles:
+- **Plan**: CTO breaks down goals, Scout researches
+- **Build**: Builders implement, Lead coordinates
+- **Test**: Builders run tests, Reviewer audits
+- **Review**: Reviewer + CTO final check
+- **Deploy**: Lead merges and deploys
+- **Measure**: Scout checks metrics, Marketer checks conversion
+- **Iterate**: CTO reviews progress, decides next iteration
+
+Max 10 iterations per cycle (configurable).
+
+## Apps
+
+GitHub, Gmail, Calendar, Vercel, Analytics, Stripe, Social, Docs, Drive, Custom

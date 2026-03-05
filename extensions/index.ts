@@ -13,6 +13,7 @@ import { registerApp, listApps, type AppType } from "../src/apps.js";
 import { createPipeline, listPipelines, getCurrentTask, advancePipeline, buildMarketingPrompt, PIPELINE_TEMPLATES, type PipelineType } from "../src/marketing.js";
 import { buildAutopilotPrompt, generateInitialPlan, DEFAULT_HEARTBEATS } from "../src/autopilot.js";
 import { buildDispatchCommand, buildRunCommand, executeAndTrack, getActiveProcesses } from "../src/executor.js";
+import { bootstrapAgency, type AgencyType } from "../src/agency.js";
 import { tick, getHeartbeatStatus, getDueAgents } from "../src/heartbeat.js";
 import { getRecentCosts, getTotalCost } from "../src/cost-tracker.js";
 import { syncIssues } from "../src/github-sync.js";
@@ -518,6 +519,37 @@ export default function (pi: ExtensionAPI) {
 			const db = getDb();
 			failRun(db, runId, error);
 			return Text(`❌ Run ${runId.slice(0, 8)} failed: ${error}`);
+		},
+	});
+
+	// ── Agency Templates ──
+
+	pi.registerCommand("corp-agency", {
+		description: "Bootstrap a full agency from a template: design, seo, dev, marketing",
+		parameters: Type.Object({
+			type: Type.String({ description: "Agency type: design, seo, dev, marketing" }),
+			name: Type.Optional(Type.String({ description: "Company name (default: WaelCorp)" })),
+		}),
+		execute: async ({ type, name }) => {
+			const db = getDb();
+			const companyName = name ?? "WaelCorp";
+			const result = bootstrapAgency(db, type as AgencyType, companyName);
+			const lines = [
+				`🏢 ${companyName} (${type} agency) is LIVE`,
+				"",
+				`  🎯 Goal created`,
+				`  📁 ${result.projectIds.length} projects`,
+				`  👥 ${result.agentCount} agents hired`,
+				`  🎫 ${result.ticketCount} tickets in backlog`,
+				`  🚀 ${result.pipelineCount} marketing pipelines`,
+				`  🔄 ${result.projectIds.length} DevCycles started`,
+				"",
+				"  Next steps:",
+				"  /corp-go          → Start the machine",
+				"  /corp             → See the dashboard",
+				"  /corp-feed        → Watch what happens",
+			];
+			return Text(lines.join("\n"));
 		},
 	});
 

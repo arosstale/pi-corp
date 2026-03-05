@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createPipeline } from "../src/marketing.ts";
+import { bootstrapAgency } from "../src/agency.ts";
 
 const SCHEMA = `
 	CREATE TABLE marketing_pipelines (id TEXT PRIMARY KEY, type TEXT NOT NULL, project_id TEXT, status TEXT DEFAULT 'running', current_task INTEGER DEFAULT 0, tasks TEXT NOT NULL, outputs TEXT DEFAULT '{}', created_at TEXT DEFAULT (datetime('now')));
@@ -415,6 +416,29 @@ describe("pi-corp", () => {
 		expect(pipeline.tasks[0].title).toContain("SEO keyword research");
 		expect(pipeline.tasks[3].title).toContain("Cold outreach");
 		expect(pipeline.tasks[7].title).toContain("free tool");
+	});
+
+	// ── Agency Templates ──
+
+	test("design agency bootstrap creates full company", () => {
+		const result = bootstrapAgency(db, "design", "TestCorp");
+		expect(result.agentCount).toBe(10);
+		expect(result.ticketCount).toBe(17);
+		expect(result.pipelineCount).toBe(3);
+		expect(result.projectIds.length).toBe(3);
+		// Verify agents exist
+		const agents = db.query("SELECT * FROM agents").all();
+		expect(agents.length).toBe(10);
+		// Verify tickets exist
+		const tickets = db.query("SELECT * FROM tickets").all();
+		expect(tickets.length).toBe(17);
+	});
+
+	test("seo agency bootstrap creates full company", () => {
+		const result = bootstrapAgency(db, "seo", "SEOCorp");
+		expect(result.agentCount).toBe(10);
+		expect(result.ticketCount).toBe(12);
+		expect(result.projectIds.length).toBe(3);
 	});
 
 	// ── Full Bootstrap ──

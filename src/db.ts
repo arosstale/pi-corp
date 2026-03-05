@@ -141,6 +141,17 @@ function migrate(db: Database): void {
 			status TEXT DEFAULT 'active',
 			created_at TEXT DEFAULT (datetime('now'))
 		);
+
+		CREATE TABLE IF NOT EXISTS marketing_pipelines (
+			id TEXT PRIMARY KEY,
+			type TEXT NOT NULL,
+			project_id TEXT REFERENCES projects(id),
+			status TEXT DEFAULT 'running',
+			current_task INTEGER DEFAULT 0,
+			tasks TEXT NOT NULL,
+			outputs TEXT DEFAULT '{}',
+			created_at TEXT DEFAULT (datetime('now'))
+		);
 	`);
 }
 

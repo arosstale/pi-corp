@@ -9,6 +9,7 @@ import { matchTicketsToAgents, dispatchRun, completeRun, failRun, listRuns, getS
 import { DEFAULT_SKILLKITS, getSkillkit, buildSkillInjection } from "../src/skillkits.js";
 import { createCycle, listCycles, advancePhase, appendProgress, getPhaseWork, type CyclePhase } from "../src/devcycle.js";
 import { registerApp, listApps, type AppType } from "../src/apps.js";
+import { createPipeline, listPipelines, getCurrentTask, advancePipeline, buildMarketingPrompt, PIPELINE_TEMPLATES, type PipelineType } from "../src/marketing.js";
 
 export default function (pi: ExtensionAPI) {
 
@@ -90,6 +91,20 @@ export default function (pi: ExtensionAPI) {
 				for (const t of active) {
 					const icon = t.status === "in_progress" ? "🔵" : t.status === "failed" ? "🔴" : "⬜";
 					lines.push(`  ${icon} [P${t.priority}] ${t.title} (${t.status})`);
+				}
+				lines.push("");
+			}
+
+			// Marketing pipelines
+			const mktPipelines = listPipelines(db);
+			if (mktPipelines.length > 0) {
+				lines.push("── MARKETING ──────────────────────────────────────────────");
+				for (const p of mktPipelines) {
+					const task = getCurrentTask(p);
+					const pct = p.tasks.length > 0 ? Math.round((p.current_task / p.tasks.length) * 100) : 0;
+					const bar = "█".repeat(Math.round(pct / 5)) + "░".repeat(20 - Math.round(pct / 5));
+					lines.push(`  ${p.status === "completed" ? "✅" : "🔄"} ${p.type.toUpperCase()} [${bar}] ${pct}%`);
+					if (task) lines.push(`     → ${task.title} (${task.skill})`);
 				}
 				lines.push("");
 			}
@@ -355,6 +370,102 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
+	// ── Marketing Pipelines ──
+
+	pi.registerCommand("corp-marketing", {
+		description: "Start or view a marketing pipeline (content, launch, growth, evergreen)",
+		parameters: Type.Object({
+			start: Type.Optional(Type.String({ description: "Pipeline type to start: content, launch, growth, evergreen" })),
+			projectId: Type.Optional(Type.String({ description: "Project ID (uses first active if omitted)" })),
+		}),
+		execute: async ({ start, projectId }) => {
+			const db = getDb();
+			if (start) {
+				let pid = projectId;
+				if (!pid) {
+					const projects = listProjects(db);
+					if (projects.length === 0) return Text("❌ No projects. Create one first.");
+					pid = projects[0]!.id;
+				}
+				const pipeline = createPipeline(db, start as PipelineType, pid!);
+				const task = getCurrentTask(pipeline);
+				const lines = [
+					`🚀 Marketing pipeline started: ${start.toUpperCase()} (${pipeline.tasks.length} tasks)`,
+					"",
+					`  Current task: ${task?.title}`,
+					`  Skill: ${task?.skill}`,
+					`  Role: ${task?.role}`,
+					"",
+					"  Run /corp-marketing-next to execute the current task.",
+				];
+				return Text(lines.join("\n"));
+			}
+
+			// Show all pipelines
+			const pipelines = listPipelines(db);
+			if (pipelines.length === 0) {
+				const lines = [
+					"── MARKETING PIPELINES ────────────────────────────────",
+					"",
+					"  No active pipelines. Start one:",
+					'  /corp-marketing start="content"   — Content → SEO → Social → Measure',
+					'  /corp-marketing start="launch"    — Landing page → Emails → Social → Outreach',
+					'  /corp-marketing start="growth"    — Analytics → CRO → A/B Tests → Referral',
+					'  /corp-marketing start="evergreen" — Weekly: Analytics → Repurpose → Newsletter → SEO',
+				];
+				return Text(lines.join("\n"));
+			}
+
+			const lines: string[] = ["── MARKETING PIPELINES ────────────────────────────────"];
+			for (const p of pipelines) {
+				const task = getCurrentTask(p);
+				const pct = p.tasks.length > 0 ? Math.round((p.current_task / p.tasks.length) * 100) : 0;
+				const bar = "█".repeat(Math.round(pct / 5)) + "░".repeat(20 - Math.round(pct / 5));
+				lines.push(`  ${p.status === "completed" ? "✅" : "🔄"} ${p.type.toUpperCase()} [${bar}] ${pct}%`);
+				if (task) {
+					lines.push(`     → ${task.title} (${task.skill}) [${task.role}]`);
+				} else if (p.status === "completed") {
+					lines.push(`     All ${p.tasks.length} tasks completed`);
+				}
+			}
+			return Text(lines.join("\n"));
+		},
+	});
+
+	pi.registerCommand("corp-marketing-next", {
+		description: "Show the next marketing task to execute (with full prompt)",
+		parameters: Type.Object({
+			pipelineId: Type.Optional(Type.String({ description: "Pipeline ID (uses latest if omitted)" })),
+		}),
+		execute: async ({ pipelineId }) => {
+			const db = getDb();
+			const pipelines = listPipelines(db);
+			const pipeline = pipelineId
+				? pipelines.find((p) => p.id === pipelineId)
+				: pipelines.find((p) => p.status === "running");
+			if (!pipeline) return Text("No active marketing pipeline.");
+
+			const task = getCurrentTask(pipeline);
+			if (!task) return Text("✅ Pipeline complete! All tasks done.");
+
+			const prompt = buildMarketingPrompt(pipeline, task);
+			const lines = [
+				`── MARKETING TASK ${pipeline.current_task + 1}/${pipeline.tasks.length} ──`,
+				`  Pipeline: ${pipeline.type.toUpperCase()}`,
+				`  Task: ${task.title}`,
+				`  Skill: ${task.skill}`,
+				`  Role: ${task.role}`,
+				`  Output: ${task.outputType}`,
+				"",
+				"── PROMPT ──────────────────────────────────────────────",
+				prompt,
+				"",
+				"  The LLM can auto-execute this via corp_run_marketing_task tool.",
+			];
+			return Text(lines.join("\n"));
+		},
+	});
+
 	// ── LLM Tools ──
 
 	pi.addLLMTool({
@@ -509,6 +620,80 @@ export default function (pi: ExtensionAPI) {
 			const db = getDb();
 			const app = registerApp(db, name, type as AppType, { projectId, config: config as Record<string, unknown> });
 			return JSON.stringify(app);
+		},
+	});
+
+	pi.addLLMTool({
+		name: "corp_start_marketing",
+		description: "Start a marketing pipeline: content (SEO articles + social), launch (landing page + emails + outreach), growth (CRO + A/B tests + referral), or evergreen (weekly newsletter + analytics + repurpose)",
+		parameters: Type.Object({
+			type: Type.String({ description: "content, launch, growth, or evergreen" }),
+			projectId: Type.Optional(Type.String()),
+		}),
+		execute: async ({ type, projectId }) => {
+			const db = getDb();
+			let pid = projectId;
+			if (!pid) {
+				const projects = listProjects(db);
+				if (projects.length === 0) return JSON.stringify({ error: "No projects" });
+				pid = projects[0]!.id;
+			}
+			const pipeline = createPipeline(db, type as PipelineType, pid!);
+			const task = getCurrentTask(pipeline);
+			return JSON.stringify({
+				pipelineId: pipeline.id,
+				type: pipeline.type,
+				totalTasks: pipeline.tasks.length,
+				currentTask: task ? { title: task.title, skill: task.skill, role: task.role } : null,
+			});
+		},
+	});
+
+	pi.addLLMTool({
+		name: "corp_marketing_next",
+		description: "Get the next marketing task with full prompt (ready to execute)",
+		parameters: Type.Object({
+			pipelineId: Type.Optional(Type.String()),
+		}),
+		execute: async ({ pipelineId }) => {
+			const db = getDb();
+			const pipelines = listPipelines(db);
+			const pipeline = pipelineId
+				? pipelines.find((p) => p.id === pipelineId)
+				: pipelines.find((p) => p.status === "running");
+			if (!pipeline) return JSON.stringify({ error: "No active pipeline" });
+			const task = getCurrentTask(pipeline);
+			if (!task) return JSON.stringify({ status: "completed" });
+			const prompt = buildMarketingPrompt(pipeline, task);
+			return JSON.stringify({
+				taskIndex: pipeline.current_task,
+				totalTasks: pipeline.tasks.length,
+				task: { id: task.id, title: task.title, skill: task.skill, role: task.role, outputType: task.outputType },
+				prompt,
+			});
+		},
+	});
+
+	pi.addLLMTool({
+		name: "corp_marketing_complete_task",
+		description: "Mark the current marketing task as done with its output, advance to next task",
+		parameters: Type.Object({
+			pipelineId: Type.Optional(Type.String()),
+			output: Type.String({ description: "Output/result of the completed task" }),
+		}),
+		execute: async ({ pipelineId, output }) => {
+			const db = getDb();
+			const pipelines = listPipelines(db);
+			const pipeline = pipelineId
+				? pipelines.find((p) => p.id === pipelineId)
+				: pipelines.find((p) => p.status === "running");
+			if (!pipeline) return JSON.stringify({ error: "No active pipeline" });
+			const nextTask = advancePipeline(db, pipeline.id, output);
+			if (!nextTask) return JSON.stringify({ status: "completed", message: "Pipeline finished!" });
+			return JSON.stringify({
+				status: "advanced",
+				nextTask: { title: nextTask.title, skill: nextTask.skill, role: nextTask.role },
+			});
 		},
 	});
 }

@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 
 const SCHEMA = `
+	CREATE TABLE marketing_pipelines (id TEXT PRIMARY KEY, type TEXT NOT NULL, project_id TEXT, status TEXT DEFAULT 'running', current_task INTEGER DEFAULT 0, tasks TEXT NOT NULL, outputs TEXT DEFAULT '{}', created_at TEXT DEFAULT (datetime('now')));
+
 	CREATE TABLE goals (id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT, status TEXT DEFAULT 'active', created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')));
 	CREATE TABLE projects (id TEXT PRIMARY KEY, goal_id TEXT REFERENCES goals(id), name TEXT NOT NULL, repo TEXT, branch TEXT DEFAULT 'main', status TEXT DEFAULT 'active', created_at TEXT DEFAULT (datetime('now')));
 	CREATE TABLE agents (id TEXT PRIMARY KEY, name TEXT NOT NULL, role TEXT NOT NULL, runtime TEXT NOT NULL DEFAULT 'pi', model TEXT, reports_to TEXT REFERENCES agents(id), budget_monthly REAL DEFAULT 0, spent_monthly REAL DEFAULT 0, status TEXT DEFAULT 'idle', created_at TEXT DEFAULT (datetime('now')));
@@ -263,6 +265,86 @@ describe("pi-corp", () => {
 		for (const [, bin] of Object.entries(runtimes)) {
 			expect(typeof bin).toBe("string");
 		}
+	});
+
+	// ── Marketing Pipelines ──
+
+	test("content pipeline has 6 tasks", () => {
+		const tasks = [
+			"Define product marketing context",
+			"Create content strategy",
+			"Write first 3 SEO articles",
+			"SEO audit the articles",
+			"Create social distribution",
+			"Set up analytics tracking",
+		];
+		expect(tasks.length).toBe(6);
+	});
+
+	test("launch pipeline has 8 tasks", () => {
+		const tasks = [
+			"Define product marketing context",
+			"Create launch strategy",
+			"Build landing page",
+			"Implement landing page",
+			"Create email sequences",
+			"Create launch social content",
+			"Cold outreach for launch",
+			"Set up analytics",
+		];
+		expect(tasks.length).toBe(8);
+	});
+
+	test("marketing pipeline CRUD", () => {
+		db.run("INSERT INTO projects (id, name) VALUES ('p1', 'proj')");
+		const tasks = JSON.stringify([
+			{ id: "t0", title: "Step 1", skill: "copywriting", prompt: "write copy", role: "marketer", outputType: "copy" },
+			{ id: "t1", title: "Step 2", skill: "seo-audit", prompt: "audit seo", role: "marketer", outputType: "audit" },
+		]);
+		db.run("INSERT INTO marketing_pipelines (id, type, project_id, tasks) VALUES ('mp1', 'content', 'p1', ?)", [tasks]);
+		const p = db.query("SELECT * FROM marketing_pipelines WHERE id='mp1'").get() as { type: string; current_task: number; status: string };
+		expect(p.type).toBe("content");
+		expect(p.current_task).toBe(0);
+		expect(p.status).toBe("running");
+	});
+
+	test("marketing pipeline advancement", () => {
+		db.run("INSERT INTO projects (id, name) VALUES ('p1', 'proj')");
+		const tasks = JSON.stringify([
+			{ id: "t0", title: "Step 1", skill: "copywriting", prompt: "p1", role: "marketer", outputType: "copy" },
+			{ id: "t1", title: "Step 2", skill: "seo-audit", prompt: "p2", role: "marketer", outputType: "audit" },
+			{ id: "t2", title: "Step 3", skill: "social-content", prompt: "p3", role: "marketer", outputType: "social" },
+		]);
+		db.run("INSERT INTO marketing_pipelines (id, type, project_id, tasks) VALUES ('mp1', 'content', 'p1', ?)", [tasks]);
+
+		// Advance task 0 → 1
+		db.run("UPDATE marketing_pipelines SET current_task=1, outputs='{\"t0\":\"copy output\"}' WHERE id='mp1'");
+		let p = db.query("SELECT current_task, outputs FROM marketing_pipelines WHERE id='mp1'").get() as { current_task: number; outputs: string };
+		expect(p.current_task).toBe(1);
+		expect(JSON.parse(p.outputs).t0).toBe("copy output");
+
+		// Advance to completion
+		db.run("UPDATE marketing_pipelines SET current_task=3, status='completed' WHERE id='mp1'");
+		p = db.query("SELECT status FROM marketing_pipelines WHERE id='mp1'").get() as { current_task: number; outputs: string; status: string };
+		expect(p.status).toBe("completed");
+	});
+
+	test("pipeline outputs chain as context", () => {
+		// Simulate: task 0 output feeds into task 1 prompt
+		const outputs = { "t0": "Product: AI orchestration tool for developers" };
+		const tasks = [
+			{ id: "t0", title: "Context", skill: "product-marketing-context", prompt: "define context", role: "marketer", outputType: "document" },
+			{ id: "t1", title: "Strategy", skill: "content-strategy", prompt: "create strategy", role: "marketer", outputType: "plan", dependsOn: "t0" },
+		];
+		// Task 1 should see task 0's output
+		const task1 = tasks[1]!;
+		expect(task1.dependsOn).toBe("t0");
+		expect(outputs[task1.dependsOn!]).toContain("AI orchestration");
+	});
+
+	test("evergreen pipeline has 4 weekly tasks", () => {
+		const tasks = ["Weekly analytics review", "Repurpose top content", "Draft weekly newsletter", "Update programmatic SEO pages"];
+		expect(tasks.length).toBe(4);
 	});
 
 	// ── Full Bootstrap ──

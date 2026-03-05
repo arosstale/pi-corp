@@ -16,6 +16,12 @@ import { buildDispatchCommand, buildRunCommand, executeAndTrack, getActiveProces
 import { bootstrapAgency, type AgencyType } from "../src/agency.js";
 import { createExperiment, startExperiment, completeExperiment, listExperiments, generateHypotheses, getPortfolioAlpha, type ExperimentType } from "../src/experiments.js";
 import { writeDashboard } from "../src/html-dashboard.js";
+import { createIntake, listIntakes, generateBrief, generateProposal, intakeToTickets, type ClientIntake } from "../src/intake.js";
+import { addProspect, listProspects, updateProspectStatus, getProspectStats, generatePersonalizedLine } from "../src/prospects.js";
+import { createSequence, listSequences, personalizeEmail, SEQUENCES } from "../src/cold-email.js";
+import { generateSeoPages, listSeoPages, getSeoStats, INDUSTRY_KEYWORDS, CITY_KEYWORDS, COMPETITOR_KEYWORDS } from "../src/seo-pages.js";
+import { generateWeeklyReport, generateClientReport, listReports } from "../src/reporting.js";
+import { addClient, listBillingClients, getRevenueMetrics, churnClient } from "../src/billing.js";
 import { tick, getHeartbeatStatus, getDueAgents } from "../src/heartbeat.js";
 import { getRecentCosts, getTotalCost } from "../src/cost-tracker.js";
 import { syncIssues } from "../src/github-sync.js";
@@ -521,6 +527,212 @@ export default function (pi: ExtensionAPI) {
 			const db = getDb();
 			failRun(db, runId, error);
 			return Text(`❌ Run ${runId.slice(0, 8)} failed: ${error}`);
+		},
+	});
+
+	// ── Client Intake ──
+
+	pi.registerCommand("corp-intake", {
+		description: "Create client intake or list existing intakes",
+		parameters: Type.Object({
+			clientName: Type.Optional(Type.String({ description: "Client name (creates new intake)" })),
+			goals: Type.Optional(Type.String({ description: "What the client wants" })),
+			tier: Type.Optional(Type.String({ description: "Budget tier: starter, growth, scale" })),
+			pages: Type.Optional(Type.String({ description: "Comma-separated pages needed" })),
+			competitors: Type.Optional(Type.String({ description: "Comma-separated competitor URLs" })),
+			brief: Type.Optional(Type.String({ description: "Intake ID to generate brief for" })),
+			proposal: Type.Optional(Type.String({ description: "Intake ID to generate proposal for" })),
+			approve: Type.Optional(Type.String({ description: "Intake ID to approve and create tickets" })),
+			projectId: Type.Optional(Type.String({ description: "Project ID for ticket creation" })),
+		}),
+		execute: async (args) => {
+			const db = getDb();
+			if (args.approve && args.projectId) {
+				const count = intakeToTickets(db, args.approve, args.projectId);
+				return Text(`✅ Approved! Created ${count} tickets from intake. Build starts now.`);
+			}
+			if (args.brief) {
+				const intake = listIntakes(db).find((i) => i.id.startsWith(args.brief!));
+				if (!intake) return Text("❌ Intake not found");
+				return Text(generateBrief(intake));
+			}
+			if (args.proposal) {
+				const intake = listIntakes(db).find((i) => i.id.startsWith(args.proposal!));
+				if (!intake) return Text("❌ Intake not found");
+				return Text(generateProposal(intake));
+			}
+			if (args.clientName && args.goals) {
+				const intake = createIntake(db, {
+					clientName: args.clientName,
+					goals: args.goals,
+					budgetTier: (args.tier as "starter" | "growth" | "scale") ?? "starter",
+					pagesNeeded: args.pages?.split(",").map((s) => s.trim()) ?? [],
+					competitors: args.competitors?.split(",").map((s) => s.trim()) ?? [],
+				});
+				return Text(`📋 Intake created: ${intake.id}\n  Client: ${intake.client_name}\n  Tier: ${intake.budget_tier}\n\n  Run /corp-intake brief=${intake.id.slice(0, 6)} to generate creative brief`);
+			}
+			const intakes = listIntakes(db);
+			if (intakes.length === 0) return Text("No intakes. Use /corp-intake clientName='...' goals='...'");
+			const lines = ["── CLIENT INTAKES ─────────────────────────────────────────"];
+			for (const i of intakes) lines.push(`  [${i.status}] ${i.client_name} — ${i.budget_tier} — ${i.id.slice(0, 6)}`);
+			return Text(lines.join("\n"));
+		},
+	});
+
+	// ── Prospects ──
+
+	pi.registerCommand("corp-prospects", {
+		description: "Manage prospect pipeline — find, track, convert leads",
+		parameters: Type.Object({
+			add: Type.Optional(Type.String({ description: "Company name to add as prospect" })),
+			url: Type.Optional(Type.String({ description: "Company website URL" })),
+			score: Type.Optional(Type.Number({ description: "Lighthouse score (0-100)" })),
+			industry: Type.Optional(Type.String()),
+			status: Type.Optional(Type.String({ description: "Filter by status or update: new, contacted, replied, call_booked, closed" })),
+			id: Type.Optional(Type.String({ description: "Prospect ID to update" })),
+		}),
+		execute: async (args) => {
+			const db = getDb();
+			if (args.id && args.status) {
+				updateProspectStatus(db, args.id, args.status as any);
+				return Text(`Updated prospect ${args.id.slice(0, 6)} → ${args.status}`);
+			}
+			if (args.add && args.url) {
+				const p = addProspect(db, {
+					companyName: args.add, url: args.url,
+					lighthouseScore: args.score, industry: args.industry,
+					personalizedLine: args.score ? generatePersonalizedLine({ company_name: args.add, lighthouse_score: args.score } as any) : undefined,
+				});
+				return Text(`🎯 Prospect added: ${p.company_name} (score: ${p.lighthouse_score ?? "?"}/100)\n  ${p.personalized_line ?? ""}`);
+			}
+			const stats = getProspectStats(db);
+			const prospects = listProspects(db, args.status);
+			const lines = ["── PROSPECTS ──────────────────────────────────────────────"];
+			lines.push(`  Pipeline: ${stats.total} total │ ${stats.new_count} new │ ${stats.contacted} contacted │ ${stats.replied} replied │ ${stats.booked} booked │ ${stats.closed} closed`);
+			lines.push(`  Conversion: ${(stats.conversionRate * 100).toFixed(1)}%`);
+			lines.push("");
+			for (const p of prospects.slice(0, 15)) {
+				lines.push(`  [${p.status}] ${p.company_name} — score:${p.lighthouse_score ?? "?"} — ${p.url.slice(0, 40)}`);
+			}
+			return Text(lines.join("\n"));
+		},
+	});
+
+	// ── Cold Email ──
+
+	pi.registerCommand("corp-email", {
+		description: "Cold email sequences — create, personalize, preview",
+		parameters: Type.Object({
+			create: Type.Optional(Type.String({ description: "Create sequence: lighthouse-score, case-study" })),
+			preview: Type.Optional(Type.String({ description: "Sequence ID to preview" })),
+			prospectId: Type.Optional(Type.String({ description: "Personalize for this prospect" })),
+		}),
+		execute: async (args) => {
+			const db = getDb();
+			if (args.create) {
+				const seq = createSequence(db, args.create, args.create);
+				return Text(`📧 Sequence "${seq.name}" created with ${seq.emails.length} emails`);
+			}
+			const sequences = listSequences(db);
+			if (sequences.length === 0) return Text("No sequences. Use /corp-email create=lighthouse-score");
+			const lines = ["── EMAIL SEQUENCES ────────────────────────────────────────"];
+			for (const s of sequences) {
+				lines.push(`  📧 ${s.name} (${s.emails.length} emails) — ${s.id.slice(0, 6)}`);
+				for (const e of s.emails) lines.push(`     Day ${e.day}: ${e.subject}`);
+			}
+			return Text(lines.join("\n"));
+		},
+	});
+
+	// ── SEO Pages ──
+
+	pi.registerCommand("corp-seo", {
+		description: "Generate programmatic SEO pages from keywords",
+		parameters: Type.Object({
+			generate: Type.Optional(Type.String({ description: "Page type: industry, city, comparison, how-to" })),
+			keywords: Type.Optional(Type.String({ description: "Comma-separated keywords (or 'default' for built-in list)" })),
+			projectId: Type.Optional(Type.String()),
+			companyName: Type.Optional(Type.String()),
+		}),
+		execute: async (args) => {
+			const db = getDb();
+			if (args.generate) {
+				let keywords: string[];
+				if (!args.keywords || args.keywords === "default") {
+					keywords = args.generate === "industry" ? INDUSTRY_KEYWORDS : args.generate === "city" ? CITY_KEYWORDS : args.generate === "comparison" ? COMPETITOR_KEYWORDS : INDUSTRY_KEYWORDS.slice(0, 5);
+				} else {
+					keywords = args.keywords.split(",").map((s) => s.trim());
+				}
+				const pages = generateSeoPages(db, keywords, args.generate as any, args.companyName ?? "WaelCorp", args.projectId);
+				return Text(`📄 Generated ${pages.length} SEO pages (${args.generate})\n\n${pages.slice(0, 5).map((p) => `  ${p.slug} — "${p.title.slice(0, 60)}"`).join("\n")}${pages.length > 5 ? `\n  ... +${pages.length - 5} more` : ""}`);
+			}
+			const stats = getSeoStats(db);
+			const pages = listSeoPages(db);
+			const lines = ["── SEO PAGES ──────────────────────────────────────────────"];
+			lines.push(`  Total: ${stats.total} │ Published: ${stats.published} │ Draft: ${stats.draft}`);
+			for (const p of pages.slice(0, 10)) lines.push(`  [${p.status}] /${p.slug} — ${p.page_type}`);
+			if (pages.length > 10) lines.push(`  ... +${pages.length - 10} more`);
+			return Text(lines.join("\n"));
+		},
+	});
+
+	// ── Reporting ──
+
+	pi.registerCommand("corp-report", {
+		description: "Generate weekly report or client-facing progress report",
+		parameters: Type.Object({
+			weekly: Type.Optional(Type.Boolean({ description: "Generate weekly company report" })),
+			client: Type.Optional(Type.String({ description: "Client name for client report" })),
+			projectId: Type.Optional(Type.String({ description: "Project ID for client report" })),
+			companyName: Type.Optional(Type.String()),
+		}),
+		execute: async (args) => {
+			const db = getDb();
+			if (args.weekly) {
+				const report = generateWeeklyReport(db, args.companyName ?? "WaelCorp");
+				return Text(report.content);
+			}
+			if (args.client && args.projectId) {
+				const report = generateClientReport(db, args.client, args.projectId);
+				return Text(report.content);
+			}
+			const reports = listReports(db);
+			if (reports.length === 0) return Text("No reports. Use /corp-report weekly=true");
+			const lines = ["── REPORTS ────────────────────────────────────────────────"];
+			for (const r of reports.slice(0, 10)) lines.push(`  [${r.type}] ${r.title} — ${r.created_at.slice(0, 10)}`);
+			return Text(lines.join("\n"));
+		},
+	});
+
+	// ── Billing ──
+
+	pi.registerCommand("corp-billing", {
+		description: "Track client revenue — MRR, ARR, churn",
+		parameters: Type.Object({
+			add: Type.Optional(Type.String({ description: "Client name to add" })),
+			plan: Type.Optional(Type.String({ description: "Plan: starter, growth, scale, custom" })),
+			mrr: Type.Optional(Type.Number({ description: "Custom MRR (for custom plan)" })),
+			churn: Type.Optional(Type.String({ description: "Client billing ID to churn" })),
+		}),
+		execute: async (args) => {
+			const db = getDb();
+			if (args.churn) {
+				churnClient(db, args.churn);
+				return Text(`📉 Client ${args.churn.slice(0, 6)} churned`);
+			}
+			if (args.add && args.plan) {
+				const client = addClient(db, { clientName: args.add, plan: args.plan as any, mrr: args.mrr });
+				return Text(`💰 Client added: ${client.client_name} — ${client.plan} plan — $${client.mrr}/mo`);
+			}
+			const metrics = getRevenueMetrics(db);
+			const clients = listBillingClients(db);
+			const lines = ["── REVENUE ────────────────────────────────────────────────"];
+			lines.push(`  MRR: $${metrics.mrr.toLocaleString()} │ ARR: $${metrics.arr.toLocaleString()}`);
+			lines.push(`  Clients: ${metrics.activeClients} active │ ${metrics.churnedClients} churned │ Avg: $${metrics.avgMrr.toFixed(0)}/mo`);
+			lines.push(`  By plan: Starter $${metrics.revenue.starter} │ Growth $${metrics.revenue.growth} │ Scale $${metrics.revenue.scale}`);
+			lines.push("");
+			for (const c of clients.slice(0, 10)) lines.push(`  [${c.status}] ${c.client_name} — ${c.plan} — $${c.mrr}/mo`);
+			return Text(lines.join("\n"));
 		},
 	});
 

@@ -3,6 +3,12 @@ import { Database } from "bun:sqlite";
 import { createPipeline } from "../src/marketing.ts";
 import { bootstrapAgency } from "../src/agency.ts";
 import { createExperiment, startExperiment, completeExperiment, listExperiments, generateHypotheses, getPortfolioAlpha } from "../src/experiments.ts";
+import { createIntake, generateBrief, generateProposal, intakeToTickets } from "../src/intake.ts";
+import { addProspect, listProspects, updateProspectStatus, getProspectStats, generatePersonalizedLine } from "../src/prospects.ts";
+import { createSequence, personalizeEmail } from "../src/cold-email.ts";
+import { generateSeoPages, INDUSTRY_KEYWORDS } from "../src/seo-pages.ts";
+import { addClient, getRevenueMetrics, churnClient } from "../src/billing.ts";
+import { generateWeeklyReport } from "../src/reporting.ts";
 
 const SCHEMA = `
 	CREATE TABLE marketing_pipelines (id TEXT PRIMARY KEY, type TEXT NOT NULL, project_id TEXT, status TEXT DEFAULT 'running', current_task INTEGER DEFAULT 0, tasks TEXT NOT NULL, outputs TEXT DEFAULT '{}', created_at TEXT DEFAULT (datetime('now')));
@@ -417,6 +423,76 @@ describe("pi-corp", () => {
 		expect(pipeline.tasks[0].title).toContain("SEO keyword research");
 		expect(pipeline.tasks[3].title).toContain("Cold outreach");
 		expect(pipeline.tasks[7].title).toContain("free tool");
+	});
+
+	// ── Client Intake ──
+
+	test("intake creates brief and proposal", () => {
+		const intake = createIntake(db, { clientName: "Acme Corp", goals: "Redesign website to get more leads", budgetTier: "growth", pagesNeeded: ["Homepage", "About", "Pricing"] });
+		expect(intake.client_name).toBe("Acme Corp");
+		expect(intake.budget_tier).toBe("growth");
+		const brief = generateBrief(intake);
+		expect(brief).toContain("Acme Corp");
+		expect(brief).toContain("Homepage");
+		const proposal = generateProposal(intake);
+		expect(proposal).toContain("$2000");
+	});
+
+	test("approved intake creates tickets", () => {
+		db.run("INSERT INTO projects (id, name) VALUES ('p1', 'Client')");
+		const intake = createIntake(db, { clientName: "Test Co", goals: "New site", pagesNeeded: ["Home", "Contact"] });
+		const count = intakeToTickets(db, intake.id, "p1");
+		expect(count).toBe(5); // 2 pages + hosting + QA + launch
+	});
+
+	// ── Prospects ──
+
+	test("prospect pipeline tracking", () => {
+		const p = addProspect(db, { companyName: "BadSite Inc", url: "https://badsite.com", lighthouseScore: 28, industry: "SaaS" });
+		expect(p.lighthouse_score).toBe(28);
+		const line = generatePersonalizedLine(p);
+		expect(line).toContain("28/100");
+		updateProspectStatus(db, p.id, "contacted");
+		const stats = getProspectStats(db);
+		expect(stats.contacted).toBe(1);
+	});
+
+	// ── Cold Email ──
+
+	test("cold email personalization", () => {
+		const seq = createSequence(db, "lighthouse-score");
+		expect(seq.emails.length).toBe(4);
+		const prospect = { company_name: "TestCo", lighthouse_score: 34, industry: "SaaS", personalized_line: "Your site is slow" } as any;
+		const email = personalizeEmail(seq.emails[0]!, prospect);
+		expect(email.subject).toContain("34/100");
+		expect(email.body).toContain("TestCo");
+	});
+
+	// ── SEO Pages ──
+
+	test("generate SEO pages from keywords", () => {
+		const pages = generateSeoPages(db, ["Web Design for Dentists", "Web Design for Lawyers"], "industry", "TestCorp");
+		expect(pages.length).toBe(2);
+		expect(pages[0]!.slug).toBe("web-design-for-dentists");
+		expect(pages[0]!.title).toContain("TestCorp");
+		// Dedup: running again should skip existing
+		const pages2 = generateSeoPages(db, ["Web Design for Dentists"], "industry");
+		expect(pages2.length).toBe(0);
+	});
+
+	// ── Billing ──
+
+	test("billing tracks MRR and churn", () => {
+		addClient(db, { clientName: "Client A", plan: "starter" });
+		addClient(db, { clientName: "Client B", plan: "growth" });
+		const c = addClient(db, { clientName: "Client C", plan: "scale" });
+		let metrics = getRevenueMetrics(db);
+		expect(metrics.mrr).toBe(7500); // 500 + 2000 + 5000
+		expect(metrics.activeClients).toBe(3);
+		churnClient(db, c.id);
+		metrics = getRevenueMetrics(db);
+		expect(metrics.mrr).toBe(2500);
+		expect(metrics.churnedClients).toBe(1);
 	});
 
 	// ── Quant Growth Experiments ──

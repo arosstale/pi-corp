@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { createPipeline } from "../src/marketing.ts";
 
 const SCHEMA = `
 	CREATE TABLE marketing_pipelines (id TEXT PRIMARY KEY, type TEXT NOT NULL, project_id TEXT, status TEXT DEFAULT 'running', current_task INTEGER DEFAULT 0, tasks TEXT NOT NULL, outputs TEXT DEFAULT '{}', created_at TEXT DEFAULT (datetime('now')));
@@ -403,6 +404,17 @@ describe("pi-corp", () => {
 		db.run("INSERT INTO events (type, entity_type, entity_id) VALUES ('agent.fired', 'agent', 'a2')");
 		const agentEvents = db.query("SELECT * FROM events WHERE type LIKE 'agent%'").all();
 		expect(agentEvents.length).toBe(2);
+	});
+
+	// ── WaelCorp Pipeline ──
+
+	test("waelcorp pipeline has 8 tasks covering SEO + cold outreach", () => {
+		db.run("INSERT INTO projects (id, name) VALUES ('p1', 'Test')");
+		const pipeline = createPipeline(db, "waelcorp", "p1");
+		expect(pipeline.tasks.length).toBe(8);
+		expect(pipeline.tasks[0].title).toContain("SEO keyword research");
+		expect(pipeline.tasks[3].title).toContain("Cold outreach");
+		expect(pipeline.tasks[7].title).toContain("free tool");
 	});
 
 	// ── Full Bootstrap ──

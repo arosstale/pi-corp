@@ -27,7 +27,7 @@
 import type { Database } from "bun:sqlite";
 import { genId, emit } from "./db.ts";
 
-export type PipelineType = "content" | "launch" | "growth" | "evergreen";
+export type PipelineType = "content" | "launch" | "growth" | "evergreen" | "waelcorp";
 
 export interface MarketingTask {
 	id: string;
@@ -52,8 +52,67 @@ export interface Pipeline {
 
 /**
  * Pipeline templates — these define the exact sequence of marketing work.
+ * The "waelcorp" pipeline is the full-spectrum grey-hat SEO + cold outreach playbook.
  */
 export const PIPELINE_TEMPLATES: Record<PipelineType, Omit<MarketingTask, "id">[]> = {
+	waelcorp: [
+		{
+			title: "SEO keyword research — find 50 low-competition long-tail keywords",
+			skill: "seo-audit",
+			prompt: "Research 50 low-competition long-tail keywords in our niche. Prioritize by: search volume > 100/mo, difficulty < 30, commercial intent. Output as CSV: keyword, volume, difficulty, intent.",
+			role: "marketer",
+			outputType: "research",
+		},
+		{
+			title: "Build programmatic SEO page templates",
+			skill: "programmatic-seo",
+			prompt: "Create templates for 3 page types: (1) '{product} vs {competitor}' comparison pages, (2) '{keyword} for {industry}' landing pages, (3) '{tool} alternatives' listicles. Each template: title formula, H1-H3 structure, word count target, CTA placement, internal linking strategy.",
+			role: "marketer",
+			outputType: "templates",
+		},
+		{
+			title: "Generate first batch of 20 SEO pages",
+			skill: "programmatic-seo",
+			prompt: "Using the templates and top 20 keywords, generate 20 SEO-optimized pages. Each page: 800-1500 words, unique intro, data-backed claims, proper schema markup, meta description. No thin content.",
+			role: "marketer",
+			outputType: "pages",
+		},
+		{
+			title: "Cold outreach campaign — 3 sequences × 50 prospects",
+			skill: "cold-email",
+			prompt: "Build 3 cold email sequences: (1) Founders with the problem we solve — 4 emails, (2) Influencers/bloggers in our niche — 3 emails, (3) Potential partners — 3 emails. Each sequence: subject lines, personalization hooks, follow-up timing. Aim for 50 prospects per sequence.",
+			role: "marketer",
+			outputType: "outreach",
+		},
+		{
+			title: "Build link-building outreach list",
+			skill: "seo-audit",
+			prompt: "Find 30 high-DA sites that could link to us: (1) Resource pages in our niche, (2) Broken links we can replace, (3) Guest post opportunities, (4) HARO-style journalist queries. For each: URL, DA, contact method, pitch angle.",
+			role: "scout",
+			outputType: "research",
+		},
+		{
+			title: "Create viral social content batch — 30 posts",
+			skill: "social-content",
+			prompt: "Create 30 social posts across Twitter/X and LinkedIn: 10 problem-agitation posts, 10 'here is how' tactical posts, 5 contrarian takes, 5 engagement bait (polls/questions). Include hooks, formatting, hashtags. Schedule: 3 posts/day for 10 days.",
+			role: "marketer",
+			outputType: "social",
+		},
+		{
+			title: "Set up conversion tracking on everything",
+			skill: "analytics-tracking",
+			prompt: "Implement full-funnel tracking: (1) UTM parameters on all outbound links, (2) GA4 events for every CTA click, (3) Conversion goals for signup/trial/purchase, (4) Attribution by channel. Create a weekly metrics dashboard.",
+			role: "builder",
+			outputType: "tracking",
+		},
+		{
+			title: "Build free tool for SEO traffic",
+			skill: "free-tool-strategy",
+			prompt: "Design and build a free tool that targets our highest-volume keyword. The tool should: solve a real problem, require no signup to use, have a subtle CTA to the paid product, be shareable. Think: calculator, generator, checker, analyzer.",
+			role: "builder",
+			outputType: "tool",
+		},
+	],
 	content: [
 		{
 			title: "Define product marketing context",

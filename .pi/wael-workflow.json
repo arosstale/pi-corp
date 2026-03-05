@@ -1,0 +1,45 @@
+{
+  "title": "Wael's Marketing/Sales Workflow",
+  "description": "Tell me what Wael does so I can automate it. Be specific — tools, cadence, channels.",
+  "questions": [
+    {
+      "id": "channels",
+      "type": "multi",
+      "question": "What channels does Wael use?",
+      "options": [
+        "Twitter/X",
+        "LinkedIn",
+        "Instagram",
+        "TikTok",
+        "YouTube",
+        "Email outreach (cold)",
+        "Email newsletter",
+        "Reddit",
+        "Discord/Slack communities",
+        "Product Hunt",
+        "Blog/SEO",
+        "Paid ads (Google/Meta)"
+      ]
+    },
+    {
+      "id": "cadence",
+      "type": "text",
+      "question": "How often does Wael post/do outreach? (e.g., '3 tweets/day, 1 LinkedIn/day, cold emails weekly')"
+    },
+    {
+      "id": "what_works",
+      "type": "text",
+      "question": "What specifically is working for Wael? (e.g., 'thread-style posts about building in public', 'cold DMs to founders', 'demo videos')"
+    },
+    {
+      "id": "tools",
+      "type": "text",
+      "question": "What tools does Wael use? (e.g., Buffer, Mailchimp, Notion, spreadsheets, manual posting)"
+    },
+    {
+      "id": "sales_process",
+      "type": "text",
+      "question": "What's Wael's sales process? (e.g., 'DM → call → demo → close' or 'content → inbound → trial → convert')"
+    }
+  ]
+}

@@ -87,8 +87,8 @@ export const DEFAULT_HEARTBEATS: Record<string, { interval: HeartbeatInterval; t
  *
  * This is injected into the CEO agent on first boot.
  */
-export function buildAutopilotPrompt(mission: string): string {
-	return `You are the CEO of an autonomous company. Your mission:
+export function buildAutopilotPrompt(mission: string, companyName = "WaelCorp"): string {
+	return `You are the CEO of ${companyName}, an autonomous company. Your mission:
 
 "${mission}"
 

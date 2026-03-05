@@ -1,6 +1,8 @@
 # pi-corp
 
-Autonomous AI company as a pi extension. One mission → full company with org chart, DevCycle, marketing pipelines, and agent dispatch.
+Autonomous AI company from your terminal. No server, no Docker, no Postgres — just a pi extension.
+
+One mission → full company with org chart, DevCycle, marketing pipelines, growth experiments, and agent dispatch. All from the CLI.
 
 ## Install
 
@@ -85,11 +87,29 @@ L0: Tools              git, gh, gmcli, vercel, ffmpeg, curl
 
 pi, claude, codex, gemini, aider, goose, amp, claude-desktop
 
+## Why not Paperclip?
+
+[Paperclip](https://github.com/paperclipai/paperclip) (2.7k ⭐) is the full-featured version: React UI, Postgres, Docker, 38k lines. It's great if you want that.
+
+pi-corp is for people who prefer:
+
+| | Paperclip | pi-corp |
+|---|---|---|
+| Setup | Docker + Postgres + onboarding wizard | `pi install path:~/Projects/pi-corp` |
+| UI | React web app | Terminal + HTML dashboard |
+| DB | PostgreSQL | SQLite (zero config) |
+| Lines | 38,876 | ~5,000 |
+| Windows | Symlink issues (#63) | Works (Git Bash) |
+| Marketing | None | 5 pipelines, 24+ tasks |
+| Experiments | None | Quant growth engine |
+| Dependencies | Node + Postgres + Docker | Bun |
+
 ## Architecture
 
 - Pure SQLite (WAL mode) at `~/.pi-corp/corp.db`
-- 12 tables, 16 source files, ~3,800 lines
-- No Postgres, Redis, or React server
+- 13 tables, 19 source files, ~5,000 lines
+- No Postgres, Redis, Docker, or React server
 - Real cost tracking from Pi JSONL transcripts
 - GitHub Issues sync via `gh` CLI
 - Git worktree isolation per ticket
+- Quant growth experiments with compounding alpha

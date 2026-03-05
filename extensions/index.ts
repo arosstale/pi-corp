@@ -12,6 +12,7 @@ import { registerApp, listApps, type AppType } from "../src/apps.js";
 import { createPipeline, listPipelines, getCurrentTask, advancePipeline, buildMarketingPrompt, PIPELINE_TEMPLATES, type PipelineType } from "../src/marketing.js";
 import { buildAutopilotPrompt, generateInitialPlan, DEFAULT_HEARTBEATS } from "../src/autopilot.js";
 import { buildDispatchCommand, buildRunCommand } from "../src/executor.js";
+import { tick, getHeartbeatStatus, getDueAgents } from "../src/heartbeat.js";
 
 export default function (pi: ExtensionAPI) {
 
@@ -120,8 +121,19 @@ export default function (pi: ExtensionAPI) {
 				lines.push("");
 			}
 
+			// Heartbeat
+			if (org.length > 0) {
+				const due = getDueAgents(db);
+				if (due.length > 0) {
+					lines.push("── HEARTBEAT ──────────────────────────────────────────────");
+					lines.push(`  🔴 ${due.length} agent(s) due: ${due.map((d) => d.agent.name).join(", ")}`);
+					lines.push("  Run /corp-heartbeat to tick.");
+					lines.push("");
+				}
+			}
+
 			if (stats.goals === 0 && stats.agents === 0) {
-				lines.push("  Empty corp. Try: /corp-bootstrap");
+				lines.push("  Empty corp. Try: /corp-autopilot mission=\"Build something\"");
 			}
 
 			return Text(lines.join("\n"));
@@ -492,6 +504,47 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
+	// ── Heartbeat ──
+
+	pi.registerCommand("corp-heartbeat", {
+		description: "Run one heartbeat cycle — check due agents and dispatch work",
+		parameters: Type.Object({}),
+		execute: async () => {
+			const db = getDb();
+			const result = tick(db);
+			if (result.ticked === 0) return Text("💓 No agents due for heartbeat right now.");
+			const lines = [`💓 Heartbeat: ${result.ticked} agents ticked`, ""];
+			for (const action of result.actions) lines.push(`  ${action}`);
+			return Text(lines.join("\n"));
+		},
+	});
+
+	pi.registerCommand("corp-heartbeats", {
+		description: "Show heartbeat schedule for all agents",
+		parameters: Type.Object({}),
+		execute: async () => {
+			const db = getDb();
+			const statuses = getHeartbeatStatus(db);
+			const agents = listAgents(db).filter((a) => a.status !== "fired");
+			const now = new Date().toISOString();
+
+			const lines: string[] = ["── HEARTBEAT SCHEDULE ─────────────────────────────────────"];
+			for (const s of statuses) {
+				const agent = agents.find((a) => a.id === s.agent_id);
+				if (!agent) continue;
+				const isDue = s.next_beat <= now && s.interval !== "none";
+				const icon = isDue ? "🔴" : agent.status === "working" ? "🔵" : "⚪";
+				const lastStr = s.last_beat ? s.last_beat.slice(11, 19) : "never";
+				const nextStr = s.next_beat === "never" ? "never" : s.next_beat.slice(11, 19);
+				lines.push(`  ${icon} ${agent.name} (${s.interval}) last: ${lastStr} next: ${nextStr}${isDue ? " ← DUE" : ""}`);
+			}
+			lines.push("");
+			const due = getDueAgents(db);
+			lines.push(`  ${due.length} agent(s) due. Run /corp-heartbeat to tick.`);
+			return Text(lines.join("\n"));
+		},
+	});
+
 	// ── Skillkits ──
 
 	pi.registerCommand("corp-skills", {
@@ -765,6 +818,17 @@ export default function (pi: ExtensionAPI) {
 			const db = getDb();
 			const app = registerApp(db, name, type as AppType, { projectId, config: config as Record<string, unknown> });
 			return JSON.stringify(app);
+		},
+	});
+
+	pi.addLLMTool({
+		name: "corp_heartbeat",
+		description: "Run one heartbeat cycle — checks all agents, dispatches work for those who are due, auto-advances DevCycle",
+		parameters: Type.Object({}),
+		execute: async () => {
+			const db = getDb();
+			const result = tick(db);
+			return JSON.stringify(result);
 		},
 	});
 

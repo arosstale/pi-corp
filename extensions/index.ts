@@ -10,6 +10,7 @@ import { DEFAULT_SKILLKITS, getSkillkit, buildSkillInjection } from "../src/skil
 import { createCycle, listCycles, advancePhase, appendProgress, getPhaseWork, type CyclePhase } from "../src/devcycle.js";
 import { registerApp, listApps, type AppType } from "../src/apps.js";
 import { createPipeline, listPipelines, getCurrentTask, advancePipeline, buildMarketingPrompt, PIPELINE_TEMPLATES, type PipelineType } from "../src/marketing.js";
+import { buildAutopilotPrompt, generateInitialPlan, DEFAULT_HEARTBEATS } from "../src/autopilot.js";
 
 export default function (pi: ExtensionAPI) {
 
@@ -121,6 +122,91 @@ export default function (pi: ExtensionAPI) {
 			if (stats.goals === 0 && stats.agents === 0) {
 				lines.push("  Empty corp. Try: /corp-bootstrap");
 			}
+
+			return Text(lines.join("\n"));
+		},
+	});
+
+	// ── Autopilot (L5) ──
+
+	pi.registerCommand("corp-autopilot", {
+		description: "ONE COMMAND. Say what you want to build. Autopilot bootstraps the company, creates tickets, starts marketing, and dispatches agents.",
+		parameters: Type.Object({
+			mission: Type.String({ description: 'e.g., "Build a SaaS that helps freelancers track invoices"' }),
+			repo: Type.Optional(Type.String({ description: "Git repo path" })),
+			budget: Type.Optional(Type.Number({ description: "Total monthly budget (default $500)" })),
+		}),
+		execute: async ({ mission, repo, budget }) => {
+			const db = getDb();
+			const totalBudget = budget ?? 500;
+			const lines: string[] = [];
+			lines.push("╔══════════════════════════════════════════════════════════╗");
+			lines.push("║              🚀  AUTOPILOT ENGAGED                      ║");
+			lines.push("╚══════════════════════════════════════════════════════════╝");
+			lines.push("");
+			lines.push(`  Mission: "${mission}"`);
+			lines.push(`  Budget: $${totalBudget}/mo`);
+			lines.push("");
+
+			// 1. Goal & Project
+			const goal = createGoal(db, mission);
+			const projectName = mission.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 30);
+			const project = createProject(db, projectName, goal.id, repo);
+			lines.push("  ✅ Goal & project created");
+
+			// 2. Org — budget split: CEO 40%, CTO 20%, builders 15%, rest 25%
+			const ceo = hireAgent(db, "CEO", "ceo", "claude-desktop", { budget: totalBudget * 0.10 });
+			const cto = hireAgent(db, "CTO", "cto", "claude", { reportsTo: ceo.id, budget: totalBudget * 0.10 });
+			const lead = hireAgent(db, "Lead", "lead", "pi", { reportsTo: cto.id, budget: totalBudget * 0.10 });
+			hireAgent(db, "Builder-1", "builder", "pi", { reportsTo: lead.id, budget: totalBudget * 0.15 });
+			hireAgent(db, "Builder-2", "builder", "codex", { reportsTo: lead.id, budget: totalBudget * 0.15 });
+			hireAgent(db, "Scout", "scout", "gemini", { reportsTo: cto.id, budget: totalBudget * 0.05 });
+			hireAgent(db, "Reviewer", "reviewer", "claude", { reportsTo: cto.id, budget: totalBudget * 0.10 });
+			hireAgent(db, "Designer", "designer", "claude", { reportsTo: lead.id, budget: totalBudget * 0.10 });
+			hireAgent(db, "Marketer", "marketer", "claude-desktop", { reportsTo: ceo.id, budget: totalBudget * 0.15 });
+			lines.push("  ✅ 9 agents hired — org chart built");
+
+			// 3. Apps
+			registerApp(db, "GitHub", "github", { projectId: project.id });
+			registerApp(db, "Gmail", "gmail", { projectId: project.id });
+			registerApp(db, "Vercel", "deploy", { projectId: project.id });
+			registerApp(db, "Analytics", "analytics", { projectId: project.id });
+			lines.push("  ✅ 4 apps connected");
+
+			// 4. Initial tickets from mission
+			const plan = generateInitialPlan(mission);
+			for (const item of plan) {
+				createTicket(db, item.title, {
+					projectId: project.id, priority: item.priority, description: item.description,
+				});
+			}
+			lines.push(`  ✅ ${plan.length} initial tickets created`);
+
+			// 5. DevCycle
+			createCycle(db, goal.id, project.id);
+			lines.push("  ✅ DevCycle started (phase: PLAN)");
+
+			// 6. Marketing
+			createPipeline(db, "launch", project.id);
+			createPipeline(db, "content", project.id);
+			lines.push("  ✅ Marketing pipelines started (LAUNCH + CONTENT)");
+
+			// 7. Heartbeat schedule
+			lines.push("  ✅ Heartbeat schedule:");
+			for (const [role, hb] of Object.entries(DEFAULT_HEARTBEATS)) {
+				lines.push(`     ${role}: every ${hb.interval}`);
+			}
+
+			lines.push("");
+			lines.push("  🏢 Company is live. The CEO agent prompt is ready.");
+			lines.push("  Run /corp to see the dashboard.");
+			lines.push("  Run /corp-dispatch to start sending work to agents.");
+			lines.push("");
+			lines.push("  ── CEO PROMPT (feed this to your first agent) ──────────");
+			lines.push("");
+
+			const ceoPrompt = buildAutopilotPrompt(mission);
+			lines.push(ceoPrompt);
 
 			return Text(lines.join("\n"));
 		},
@@ -620,6 +706,49 @@ export default function (pi: ExtensionAPI) {
 			const db = getDb();
 			const app = registerApp(db, name, type as AppType, { projectId, config: config as Record<string, unknown> });
 			return JSON.stringify(app);
+		},
+	});
+
+	pi.addLLMTool({
+		name: "corp_autopilot",
+		description: "ONE CALL to create an entire autonomous company from a mission statement. Creates goal, 9 agents, apps, tickets, DevCycle, and marketing pipelines. Returns the CEO prompt.",
+		parameters: Type.Object({
+			mission: Type.String({ description: 'e.g., "Build a SaaS that helps freelancers track invoices"' }),
+			repo: Type.Optional(Type.String()),
+			budget: Type.Optional(Type.Number({ description: "Monthly budget, default $500" })),
+		}),
+		execute: async ({ mission, repo, budget }) => {
+			const db = getDb();
+			const totalBudget = budget ?? 500;
+			const goal = createGoal(db, mission);
+			const projectName = mission.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 30);
+			const project = createProject(db, projectName, goal.id, repo);
+			const ceo = hireAgent(db, "CEO", "ceo", "claude-desktop", { budget: totalBudget * 0.10 });
+			const cto = hireAgent(db, "CTO", "cto", "claude", { reportsTo: ceo.id, budget: totalBudget * 0.10 });
+			const lead = hireAgent(db, "Lead", "lead", "pi", { reportsTo: cto.id, budget: totalBudget * 0.10 });
+			hireAgent(db, "Builder-1", "builder", "pi", { reportsTo: lead.id, budget: totalBudget * 0.15 });
+			hireAgent(db, "Builder-2", "builder", "codex", { reportsTo: lead.id, budget: totalBudget * 0.15 });
+			hireAgent(db, "Scout", "scout", "gemini", { reportsTo: cto.id, budget: totalBudget * 0.05 });
+			hireAgent(db, "Reviewer", "reviewer", "claude", { reportsTo: cto.id, budget: totalBudget * 0.10 });
+			hireAgent(db, "Designer", "designer", "claude", { reportsTo: lead.id, budget: totalBudget * 0.10 });
+			hireAgent(db, "Marketer", "marketer", "claude-desktop", { reportsTo: ceo.id, budget: totalBudget * 0.15 });
+			registerApp(db, "GitHub", "github", { projectId: project.id });
+			registerApp(db, "Gmail", "gmail", { projectId: project.id });
+			registerApp(db, "Vercel", "deploy", { projectId: project.id });
+			registerApp(db, "Analytics", "analytics", { projectId: project.id });
+			const plan = generateInitialPlan(mission);
+			for (const item of plan) {
+				createTicket(db, item.title, { projectId: project.id, priority: item.priority, description: item.description });
+			}
+			const cycle = createCycle(db, goal.id, project.id);
+			createPipeline(db, "launch", project.id);
+			createPipeline(db, "content", project.id);
+			const ceoPrompt = buildAutopilotPrompt(mission);
+			return JSON.stringify({
+				goalId: goal.id, projectId: project.id, cycleId: cycle.id,
+				agents: 9, apps: 4, tickets: plan.length, pipelines: 2,
+				ceoPrompt,
+			});
 		},
 	});
 

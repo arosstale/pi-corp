@@ -1,0 +1,33 @@
+{
+  "title": "pi-corp v0.8 — What's Next",
+  "description": "Pick the next improvements. I've ranked them by impact.",
+  "questions": [
+    {
+      "id": "name",
+      "type": "text",
+      "question": "Company name for the demo (replaces 'EganAI' in examples)"
+    },
+    {
+      "id": "priorities",
+      "type": "multi",
+      "question": "What should v0.8 focus on?",
+      "weight": "critical",
+      "options": [
+        "Real execution loop — /corp-heartbeat spawns agents via interactive_shell dispatch, records results",
+        "GitHub Issues sync — pull issues into tickets, push status back as comments",
+        "Cost tracking — parse pi/claude JSONL transcripts for actual token/cost per run",
+        "HTML dashboard — visual org chart, kanban, cost charts in browser",
+        "Workspace isolation — each ticket gets its own git worktree (Symphony pattern)",
+        "Marketing tool wiring — Marketer calls real APIs (Resend email, Twitter, Vercel deploy)"
+      ],
+      "recommended": ["Real execution loop — /corp-heartbeat spawns agents via interactive_shell dispatch, records results", "Cost tracking — parse pi/claude JSONL transcripts for actual token/cost per run"]
+    },
+    {
+      "id": "publish",
+      "type": "single",
+      "question": "Publish pi-corp as an npm package so anyone can install it?",
+      "options": ["Yes — publish to npm now", "Not yet — still iterating"],
+      "recommended": "Not yet — still iterating"
+    }
+  ]
+}

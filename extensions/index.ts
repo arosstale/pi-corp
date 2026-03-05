@@ -14,6 +14,9 @@ import { createPipeline, listPipelines, getCurrentTask, advancePipeline, buildMa
 import { buildAutopilotPrompt, generateInitialPlan, DEFAULT_HEARTBEATS } from "../src/autopilot.js";
 import { buildDispatchCommand, buildRunCommand } from "../src/executor.js";
 import { tick, getHeartbeatStatus, getDueAgents } from "../src/heartbeat.js";
+import { getRecentCosts, getTotalCost } from "../src/cost-tracker.js";
+import { syncIssues } from "../src/github-sync.js";
+import { createWorktree, listWorktrees, removeWorktree } from "../src/worktree.js";
 
 export default function (pi: ExtensionAPI) {
 
@@ -34,8 +37,8 @@ export default function (pi: ExtensionAPI) {
 
 			const lines: string[] = [];
 			lines.push("╔══════════════════════════════════════════════════════════╗");
-			lines.push("║              🏢  AUTONOMOUS CORP  v0.2                  ║");
-			lines.push("║  Goal → Plan → Build → Test → Deploy → Measure → Loop  ║");
+			lines.push("║              🏢  AUTONOMOUS CORP  v0.8                  ║");
+			lines.push("║  Autopilot → DevCycle → Marketing → Measure → Iterate  ║");
 			lines.push("╚══════════════════════════════════════════════════════════╝");
 			lines.push("");
 
@@ -504,6 +507,73 @@ export default function (pi: ExtensionAPI) {
 			const db = getDb();
 			failRun(db, runId, error);
 			return Text(`❌ Run ${runId.slice(0, 8)} failed: ${error}`);
+		},
+	});
+
+	// ── GitHub Sync ──
+
+	pi.registerCommand("corp-sync", {
+		description: "Sync GitHub issues into corp tickets",
+		parameters: Type.Object({
+			repo: Type.String({ description: "GitHub repo (owner/name)" }),
+			projectId: Type.String({ description: "Project ID to create tickets under" }),
+		}),
+		execute: async ({ repo, projectId }) => {
+			const db = getDb();
+			const result = await syncIssues(db, repo, projectId);
+			return Text(`📥 GitHub sync: ${result.created} new tickets, ${result.skipped} already tracked`);
+		},
+	});
+
+	// ── Cost Tracking ──
+
+	pi.registerCommand("corp-costs", {
+		description: "Show real costs from Pi/Claude agent transcripts",
+		parameters: Type.Object({
+			limit: Type.Optional(Type.Number({ description: "Number of recent sessions (default 10)" })),
+		}),
+		execute: async ({ limit }) => {
+			const db = getDb();
+			const costs = getRecentCosts(limit ?? 10);
+			const total = getTotalCost(50);
+			const lines: string[] = ["── REAL AGENT COSTS ───────────────────────────────────────"];
+			lines.push(`  Total: $${total.totalCost.toFixed(4)} across ${total.sessions} sessions`);
+			lines.push(`  Tokens: ${(total.inputTokens / 1000).toFixed(0)}k in, ${(total.outputTokens / 1000).toFixed(0)}k out`);
+			lines.push("");
+			for (const c of costs.slice(0, 10)) {
+				const name = c.sessionPath.split(/[/\\]/).pop()?.slice(0, 40) ?? "?";
+				lines.push(`  $${c.cost.toFixed(4)} │ ${(c.totalTokens / 1000).toFixed(0)}k tok │ ${c.messageCount} msgs │ ${c.model ?? "?"} │ ${name}`);
+			}
+			return Text(lines.join("\n"));
+		},
+	});
+
+	// ── Worktree ──
+
+	pi.registerCommand("corp-worktree", {
+		description: "Create or list isolated git worktrees for tickets",
+		parameters: Type.Object({
+			create: Type.Optional(Type.String({ description: "Ticket ID to create worktree for" })),
+			remove: Type.Optional(Type.String({ description: "Ticket ID to remove worktree for" })),
+			repo: Type.Optional(Type.String({ description: "Repo path (default: cwd)" })),
+		}),
+		execute: async ({ create, remove, repo }) => {
+			const repoPath = repo ?? process.cwd();
+			if (create) {
+				const wt = await createWorktree(repoPath, create);
+				if (!wt) return Text("❌ Failed to create worktree");
+				return Text(`🌿 Worktree created:\n  Path: ${wt.path}\n  Branch: ${wt.branch}`);
+			}
+			if (remove) {
+				const ok = await removeWorktree(repoPath, remove);
+				return Text(ok ? `🗑️ Worktree removed for ticket ${remove}` : "❌ Failed to remove worktree");
+			}
+			// List
+			const trees = await listWorktrees(repoPath);
+			if (trees.length === 0) return Text("No ticket worktrees. Use /corp-worktree create=<ticketId>");
+			const lines = ["── WORKTREES ──────────────────────────────────────────────"];
+			for (const t of trees) lines.push(`  🌿 ${t.branch} → ${t.path}`);
+			return Text(lines.join("\n"));
 		},
 	});
 

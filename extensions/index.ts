@@ -1540,4 +1540,120 @@ export default function (pi: ExtensionAPI) {
 			});
 		},
 	});
+
+	// ── Revenue Engine LLM Tools ──
+
+	pi.addLLMTool({
+		name: "corp_create_intake",
+		description: "Create a client intake from discovery call notes or form data. Returns intake ID for brief/proposal generation.",
+		parameters: Type.Object({
+			clientName: Type.String(),
+			goals: Type.String({ description: "What the client wants" }),
+			budgetTier: Type.Optional(Type.String({ description: "starter ($500/mo), growth ($2k/mo), scale ($5k/mo)" })),
+			pagesNeeded: Type.Optional(Type.Array(Type.String())),
+			competitors: Type.Optional(Type.Array(Type.String())),
+			businessType: Type.Optional(Type.String()),
+			currentWebsite: Type.Optional(Type.String()),
+		}),
+		execute: async (args) => {
+			const db = getDb();
+			const intake = createIntake(db, {
+				clientName: args.clientName, goals: args.goals,
+				budgetTier: (args.budgetTier ?? "starter") as any,
+				pagesNeeded: args.pagesNeeded, competitors: args.competitors,
+				businessType: args.businessType, currentWebsite: args.currentWebsite,
+			});
+			const brief = generateBrief(intake);
+			const proposal = generateProposal(intake);
+			return JSON.stringify({ id: intake.id, brief, proposal });
+		},
+	});
+
+	pi.addLLMTool({
+		name: "corp_add_prospect",
+		description: "Add a prospect to the sales pipeline with their website URL and optional Lighthouse score",
+		parameters: Type.Object({
+			companyName: Type.String(),
+			url: Type.String(),
+			lighthouseScore: Type.Optional(Type.Number()),
+			industry: Type.Optional(Type.String()),
+			email: Type.Optional(Type.String()),
+		}),
+		execute: async (args) => {
+			const db = getDb();
+			const p = addProspect(db, { ...args, personalizedLine: args.lighthouseScore ? generatePersonalizedLine({ company_name: args.companyName, lighthouse_score: args.lighthouseScore } as any) : undefined });
+			return JSON.stringify({ id: p.id, personalizedLine: p.personalized_line, status: p.status });
+		},
+	});
+
+	pi.addLLMTool({
+		name: "corp_personalize_email",
+		description: "Generate a personalized cold email for a prospect using a template sequence",
+		parameters: Type.Object({
+			prospectId: Type.String(),
+			sequenceType: Type.Optional(Type.String({ description: "lighthouse-score or case-study" })),
+			emailIndex: Type.Optional(Type.Number({ description: "Which email in the sequence (0-3)" })),
+		}),
+		execute: async ({ prospectId, sequenceType, emailIndex }) => {
+			const db = getDb();
+			const prospect = listProspects(db).find((p) => p.id.startsWith(prospectId));
+			if (!prospect) return JSON.stringify({ error: "Prospect not found" });
+			const templates = SEQUENCES[sequenceType ?? "lighthouse-score"]!;
+			const template = templates[emailIndex ?? 0]!;
+			return JSON.stringify(personalizeEmail(template, prospect));
+		},
+	});
+
+	pi.addLLMTool({
+		name: "corp_generate_seo_pages",
+		description: "Generate programmatic SEO pages from keywords. Types: industry, city, comparison, how-to. Use 'default' keywords or provide custom list.",
+		parameters: Type.Object({
+			pageType: Type.String({ description: "industry, city, comparison, how-to" }),
+			keywords: Type.Optional(Type.Array(Type.String())),
+			companyName: Type.Optional(Type.String()),
+		}),
+		execute: async ({ pageType, keywords, companyName }) => {
+			const db = getDb();
+			const kw = keywords ?? (pageType === "industry" ? INDUSTRY_KEYWORDS : pageType === "city" ? CITY_KEYWORDS : pageType === "comparison" ? COMPETITOR_KEYWORDS : INDUSTRY_KEYWORDS.slice(0, 5));
+			const pages = generateSeoPages(db, kw, pageType as any, companyName ?? "WaelCorp");
+			return JSON.stringify({ generated: pages.length, pages: pages.slice(0, 5).map((p) => ({ slug: p.slug, title: p.title })) });
+		},
+	});
+
+	pi.addLLMTool({
+		name: "corp_weekly_report",
+		description: "Generate a weekly company report with all metrics: tickets, SEO, prospects, experiments, costs",
+		parameters: Type.Object({ companyName: Type.Optional(Type.String()) }),
+		execute: async ({ companyName }) => {
+			const db = getDb();
+			const report = generateWeeklyReport(db, companyName ?? "WaelCorp");
+			return report.content;
+		},
+	});
+
+	pi.addLLMTool({
+		name: "corp_add_billing_client",
+		description: "Add a paying client to billing. Plans: starter ($500), growth ($2k), scale ($5k), custom.",
+		parameters: Type.Object({
+			clientName: Type.String(),
+			plan: Type.String({ description: "starter, growth, scale, custom" }),
+			mrr: Type.Optional(Type.Number({ description: "Custom MRR amount" })),
+		}),
+		execute: async (args) => {
+			const db = getDb();
+			const client = addClient(db, { clientName: args.clientName, plan: args.plan as any, mrr: args.mrr });
+			const metrics = getRevenueMetrics(db);
+			return JSON.stringify({ clientId: client.id, mrr: client.mrr, totalMrr: metrics.mrr, totalArr: metrics.arr });
+		},
+	});
+
+	pi.addLLMTool({
+		name: "corp_revenue_metrics",
+		description: "Get current revenue metrics: MRR, ARR, active clients, churn rate, revenue by plan",
+		parameters: Type.Object({}),
+		execute: async () => {
+			const db = getDb();
+			return JSON.stringify(getRevenueMetrics(db));
+		},
+	});
 }

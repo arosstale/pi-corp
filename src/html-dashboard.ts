@@ -23,6 +23,9 @@ import { getHeartbeatStatus } from "./heartbeat.ts";
 import { listExperiments, getPortfolioAlpha } from "./experiments.ts";
 import { getFeed, formatEvent } from "./feed.ts";
 import { getRecentCosts, getTotalCost } from "./cost-tracker.ts";
+import { getProspectStats, ensureProspectsTable } from "./prospects.ts";
+import { getRevenueMetrics, ensureBillingTable } from "./billing.ts";
+import { getSeoStats, ensureSeoTable } from "./seo-pages.ts";
 import { writeFileSync } from "node:fs";
 
 export function generateDashboardHTML(db: Database, companyName = "WaelCorp"): string {
@@ -38,6 +41,14 @@ export function generateDashboardHTML(db: Database, companyName = "WaelCorp"): s
 	const portfolio = getPortfolioAlpha(db);
 	const feed = getFeed(db, 15);
 	const costs = getTotalCost(50);
+
+	// Revenue engine stats (safe — ensures tables exist)
+	ensureProspectsTable(db);
+	ensureBillingTable(db);
+	ensureSeoTable(db);
+	const prospectStats = getProspectStats(db);
+	const revenue = getRevenueMetrics(db);
+	const seoStats = getSeoStats(db);
 
 	const goal = goals[0];
 	const todoTickets = tickets.filter((t) => t.status === "todo");
@@ -180,7 +191,43 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); line
   <div class="stat"><div class="value">$${(costs.totalCost).toFixed(0)}</div><div class="label">AI Spend</div></div>
   <div class="stat accent"><div class="value">${experiments.length}</div><div class="label">Experiments</div></div>
   <div class="stat green"><div class="value">${(portfolio.compoundedLift * 100).toFixed(0)}%</div><div class="label">Growth Lift</div></div>
+  <div class="stat accent"><div class="value">$${revenue.mrr.toLocaleString()}</div><div class="label">MRR</div></div>
+  <div class="stat"><div class="value">${prospectStats.total}</div><div class="label">Prospects</div></div>
+  <div class="stat"><div class="value">${seoStats.total}</div><div class="label">SEO Pages</div></div>
 </div>
+
+<!-- Revenue Engine -->
+${revenue.activeClients > 0 || prospectStats.total > 0 ? `
+<div class="section">
+  <h2>💰 Revenue Engine</h2>
+  <div class="kanban">
+    <div class="kanban-col">
+      <h3 style="color:var(--accent)">Revenue</h3>
+      <div style="padding:8px 12px;background:var(--surface-2);border-radius:6px;margin-bottom:6px">
+        <div style="font-size:1.6rem;font-weight:700;color:var(--green)">$${revenue.mrr.toLocaleString()}/mo</div>
+        <div style="color:var(--text-dim);font-size:.85rem">ARR: $${revenue.arr.toLocaleString()} · ${revenue.activeClients} clients · ${(revenue.churnRate*100).toFixed(0)}% churn</div>
+      </div>
+    </div>
+    <div class="kanban-col">
+      <h3 style="color:var(--amber)">Sales Pipeline</h3>
+      <div style="padding:8px 12px;background:var(--surface-2);border-radius:6px;margin-bottom:6px">
+        <div style="font-size:.85rem;color:var(--text-dim)">
+          ${prospectStats.new_count} new → ${prospectStats.contacted} contacted → ${prospectStats.replied} replied → ${prospectStats.booked} booked → ${prospectStats.closed} closed
+        </div>
+        <div style="margin-top:4px;font-weight:600">${(prospectStats.conversionRate*100).toFixed(1)}% conversion</div>
+      </div>
+    </div>
+    <div class="kanban-col">
+      <h3 style="color:var(--green)">SEO</h3>
+      <div style="padding:8px 12px;background:var(--surface-2);border-radius:6px;margin-bottom:6px">
+        <div style="font-size:.85rem;color:var(--text-dim)">
+          ${seoStats.published} published · ${seoStats.draft} drafts · ${seoStats.total} total
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+` : ""}
 
 <div class="section">
   <h2>📋 Ticket Board</h2>

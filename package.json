@@ -1,0 +1,15 @@
+{
+  "name": "pi-corp",
+  "version": "0.1.0",
+  "description": "Autonomous corp dashboard — Overstory + Paperclip + Symphony + Ralph in one pi extension",
+  "type": "module",
+  "license": "MIT",
+  "keywords": ["pi-package", "pi", "corp", "orchestration"],
+  "pi": { "extensions": ["./extensions/index.ts"] },
+  "scripts": { "test": "bun test" },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "^0.56.0",
+    "@mariozechner/pi-tui": "^0.56.0",
+    "@sinclair/typebox": "^0.34.48"
+  }
+}

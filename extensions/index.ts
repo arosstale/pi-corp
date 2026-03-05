@@ -15,6 +15,7 @@ import { buildAutopilotPrompt, generateInitialPlan, DEFAULT_HEARTBEATS } from ".
 import { buildDispatchCommand, buildRunCommand, executeAndTrack, getActiveProcesses } from "../src/executor.js";
 import { bootstrapAgency, type AgencyType } from "../src/agency.js";
 import { createExperiment, startExperiment, completeExperiment, listExperiments, generateHypotheses, getPortfolioAlpha, type ExperimentType } from "../src/experiments.js";
+import { writeDashboard } from "../src/html-dashboard.js";
 import { tick, getHeartbeatStatus, getDueAgents } from "../src/heartbeat.js";
 import { getRecentCosts, getTotalCost } from "../src/cost-tracker.js";
 import { syncIssues } from "../src/github-sync.js";
@@ -520,6 +521,20 @@ export default function (pi: ExtensionAPI) {
 			const db = getDb();
 			failRun(db, runId, error);
 			return Text(`❌ Run ${runId.slice(0, 8)} failed: ${error}`);
+		},
+	});
+
+	// ── HTML Dashboard ──
+
+	pi.registerCommand("corp-html", {
+		description: "Generate visual HTML dashboard — opens in browser",
+		parameters: Type.Object({
+			name: Type.Optional(Type.String({ description: "Company name (default: WaelCorp)" })),
+		}),
+		execute: async ({ name }) => {
+			const db = getDb();
+			const path = writeDashboard(db, name ?? "WaelCorp");
+			return Text(`📊 Dashboard generated: ${path}\n\nOpen in browser to see org chart, kanban, pipelines, experiments, and costs.`);
 		},
 	});
 

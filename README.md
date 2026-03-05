@@ -1,16 +1,6 @@
 # pi-corp
 
-Autonomous corp dashboard as a pi extension. Set a goal, bootstrap a company, let the DevCycle run.
-
-Combines:
-- **Paperclip**: goals, org charts, budgets, governance, role-based agents
-- **Symphony**: ticket-driven dispatch, workspace-per-issue, reconciliation
-- **Ralph**: PRD → stories → iterate until done, progress.txt memory
-- **Compound/DevCycle**: Goal → Plan → Build → Test → Review → Deploy → Measure → Iterate
-- **Skillkits**: each role gets curated skills (marketing skills from coreyhaines31/marketingskills, coding skills from pi ecosystem)
-- **Apps**: GitHub, Gmail, Calendar, Vercel, Analytics — agents use real tools
-
-One SQLite DB at `~/.pi-corp/corp.db`. No Postgres, no Redis, no React server.
+Autonomous AI company as a pi extension. One mission → full company with org chart, DevCycle, marketing pipelines, and agent dispatch.
 
 ## Install
 
@@ -21,68 +11,85 @@ pi install path:~/Projects/pi-corp
 ## Quick Start
 
 ```
-/corp-bootstrap goalTitle="Build the #1 AI note-taking app" projectName="notesapp" repo="~/Projects/notesapp"
-/corp
-/corp-cycle
-/corp-cycle advance=true
-/corp-dispatch
-/corp
+/corp-autopilot mission="Build a SaaS for freelancer invoices"
+/corp-go          # 🚀 Full auto — tick, dispatch, execute, retry
+/corp             # Dashboard
 ```
 
-## Commands
+## The Abstraction Ladder
 
-| Command | Description |
-|---------|-------------|
-| `/corp` | Full dashboard — goals, org, cycles, tickets, apps, costs |
-| `/corp-bootstrap` | One-shot: create goal + 9 agents + 5 apps + start DevCycle |
-| `/corp-goal` | Create a company goal |
-| `/corp-project` | Create a project |
-| `/corp-hire` | Hire an agent with role + runtime + budget + skillkit |
-| `/corp-ticket` | Create a ticket |
-| `/corp-prd` | Import PRD JSON as tickets (Ralph pattern) |
-| `/corp-app` | Register an app/integration |
-| `/corp-cycle` | Show or advance the DevCycle phase |
-| `/corp-dispatch` | Match tickets to idle agents and dispatch |
-| `/corp-skills` | Show skillkits for all roles |
+```
+L5: /corp-autopilot    "Build X"                    ← you touch this
+L4: Company            goal → org → budget → apps
+L3: Loops              DevCycle + Marketing (5 pipelines)
+L2: Dispatch           tickets → agents → runs → skill injection
+L1: Execute            pi, claude, codex, gemini, aider, goose, amp
+L0: Tools              git, gh, gmcli, vercel, ffmpeg, curl
+```
 
-## LLM Tools (9)
+## Commands (26)
 
-`corp_dashboard`, `corp_bootstrap`, `corp_advance_cycle`, `corp_hire`, `corp_dispatch`, `corp_create_ticket`, `corp_complete_run`, `corp_fail_run`, `corp_register_app`
+| Command | What it does |
+|---|---|
+| `/corp` | Full dashboard |
+| `/corp-autopilot` | One mission → entire company |
+| `/corp-go` | 🚀 Full auto: heartbeat + dispatch + execute + retry |
+| `/corp-bootstrap` | Interactive company setup |
+| `/corp-goal` | Create/list goals |
+| `/corp-project` | Create/list projects |
+| `/corp-hire` | Hire agents (with project specialist assignment) |
+| `/corp-ticket` | Create tickets |
+| `/corp-prd` | Import PRD into stories |
+| `/corp-app` | Register app integrations |
+| `/corp-cycle` | DevCycle management |
+| `/corp-dispatch` | Match tickets to agents (execute=true to launch) |
+| `/corp-run` | Show run command |
+| `/corp-done` | Complete a run |
+| `/corp-fail` | Fail a run |
+| `/corp-retry` | Retry failed tickets (max 3 attempts) |
+| `/corp-heartbeat` | Run one heartbeat cycle |
+| `/corp-heartbeats` | Show heartbeat schedule |
+| `/corp-skills` | View/update skillkits |
+| `/corp-marketing` | Start marketing pipeline |
+| `/corp-marketing-next` | Advance marketing pipeline |
+| `/corp-sync` | Sync GitHub issues into tickets |
+| `/corp-costs` | Real agent costs from Pi transcripts |
+| `/corp-worktree` | Git worktree per ticket |
+| `/corp-feed` | Activity event log |
+| `/corp-processes` | Active agent processes |
 
-## Org Roles (8)
+## Marketing Pipelines (5)
 
-| Role | Default Runtime | Skills |
-|------|----------------|--------|
-| ceo | claude-desktop | brainstorm, fabric-patterns, alex-hormozi-pitch, pai-algorithm |
-| cto | claude | brainstorm, context-engineering, cost-pipeline, security-review, john-carmack |
-| lead | pi | brainstorm, review, commit, tdd-workflow, context-driven-dev |
-| builder | pi/codex | commit, review, tdd-workflow, frontend-design, code-simplifier, bug-scanner |
-| scout | gemini | librarian, research-lead, github-repo-search, web-search |
-| reviewer | claude | review, security-review, code-simplifier, bug-scanner |
-| designer | claude | frontend-design, canvas-design, algorithmic-art, web-design-guidelines, visual-explainer |
-| marketer | claude-desktop | product-marketing-context, copywriting, seo-audit, page-cro, content-strategy, email-sequence, launch-strategy, analytics-tracking, pricing-strategy, alex-hormozi-pitch |
+| Pipeline | Tasks | What |
+|---|---|---|
+| **waelcorp** | 8 | Full-spectrum: SEO keywords → programmatic pages → cold outreach → social → free tool |
+| **launch** | 8 | Product launch: positioning → landing page → press → Product Hunt |
+| **content** | 6 | Content engine: strategy → blog → distribution → newsletter |
+| **growth** | 6 | Growth: analytics → CRO → retention → referrals |
+| **evergreen** | 4 | Weekly: content refresh → SEO check → social → competitors |
 
-## Worker Runtimes (8)
+## Agent Roles (8) with Heartbeat
+
+| Role | Heartbeat | Skills |
+|---|---|---|
+| CEO | 4h | leadership, strategy, hiring, metrics |
+| CTO | 1h | architecture, code-review, devops, debugging, testing |
+| Lead | 15m | project-management, code-review, testing, debugging, git |
+| Builder | 5m | git, testing, debugging, code-review, refactoring, documentation |
+| Scout | 4h | web-search, competitive-analysis, trend-monitoring, documentation |
+| Reviewer | 15m | code-review, security-review, testing, documentation |
+| Designer | 1h | frontend-design, css, accessibility, responsive-design, figma |
+| Marketer | 1d | 10 marketing skills (copywriting, SEO, email, social, etc.) |
+
+## Runtimes (8)
 
 pi, claude, codex, gemini, aider, goose, amp, claude-desktop
 
-## DevCycle Phases
+## Architecture
 
-```
-Goal → [PLAN] → BUILD → TEST → REVIEW → DEPLOY → MEASURE → ITERATE → BUILD → ...
-```
-
-Each phase dispatches specific roles:
-- **Plan**: CTO breaks down goals, Scout researches
-- **Build**: Builders implement, Lead coordinates
-- **Test**: Builders run tests, Reviewer audits
-- **Review**: Reviewer + CTO final check
-- **Deploy**: Lead merges and deploys
-- **Measure**: Scout checks metrics, Marketer checks conversion
-- **Iterate**: CTO reviews progress, decides next iteration
-
-Max 10 iterations per cycle (configurable).
-
-## Apps
-
-GitHub, Gmail, Calendar, Vercel, Analytics, Stripe, Social, Docs, Drive, Custom
+- Pure SQLite (WAL mode) at `~/.pi-corp/corp.db`
+- 12 tables, 16 source files, ~3,800 lines
+- No Postgres, Redis, or React server
+- Real cost tracking from Pi JSONL transcripts
+- GitHub Issues sync via `gh` CLI
+- Git worktree isolation per ticket

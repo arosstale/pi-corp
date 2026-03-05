@@ -102,3 +102,59 @@ export function buildDispatchCommand(db: Database, run: Run): string {
 	});
 	return escaped.join(" ");
 }
+
+/**
+ * Execute a run via Bun.spawn in background (fire-and-forget).
+ * Captures output, updates DB on completion.
+ * Returns immediately — the process runs async.
+ */
+export function executeRunBackground(db: Database, run: Run): { pid: number | undefined; command: string } {
+	const { command, args } = buildRunCommand(db, run);
+	const fullCmd = [command, ...args].join(" ").slice(0, 120);
+
+	const proc = Bun.spawn([command, ...args], {
+		cwd: process.cwd(),
+		stdout: "pipe",
+		stderr: "pipe",
+		env: { ...process.env, FORCE_COLOR: "0" },
+	});
+
+	// Fire-and-forget: handle completion in background
+	(async () => {
+		try {
+			const stdout = await new Response(proc.stdout).text();
+			const stderr = await new Response(proc.stderr).text();
+			const exitCode = await proc.exited;
+			const output = stdout.slice(0, 10000) + (stderr ? `\n--- STDERR ---\n${stderr.slice(0, 2000)}` : "");
+
+			if (exitCode === 0) {
+				completeRun(db, run.id, { output, cost: 0 });
+			} else {
+				failRun(db, run.id, `Exit code ${exitCode}: ${stderr.slice(0, 500)}`);
+			}
+		} catch (err: unknown) {
+			const msg = err instanceof Error ? err.message : String(err);
+			failRun(db, run.id, msg);
+		}
+	})();
+
+	return { pid: proc.pid, command: fullCmd };
+}
+
+/**
+ * Track active background processes.
+ */
+const activeProcesses = new Map<string, { pid: number | undefined; command: string; startedAt: Date }>();
+
+export function getActiveProcesses(): Map<string, { pid: number | undefined; command: string; startedAt: Date }> {
+	return activeProcesses;
+}
+
+/**
+ * Execute a run and track it.
+ */
+export function executeAndTrack(db: Database, run: Run): { pid: number | undefined; command: string } {
+	const result = executeRunBackground(db, run);
+	activeProcesses.set(run.id, { ...result, startedAt: new Date() });
+	return result;
+}

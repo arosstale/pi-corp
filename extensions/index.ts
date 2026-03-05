@@ -12,7 +12,7 @@ import { createCycle, listCycles, advancePhase, appendProgress, getPhaseWork, ty
 import { registerApp, listApps, type AppType } from "../src/apps.js";
 import { createPipeline, listPipelines, getCurrentTask, advancePipeline, buildMarketingPrompt, PIPELINE_TEMPLATES, type PipelineType } from "../src/marketing.js";
 import { buildAutopilotPrompt, generateInitialPlan, DEFAULT_HEARTBEATS } from "../src/autopilot.js";
-import { buildDispatchCommand, buildRunCommand } from "../src/executor.js";
+import { buildDispatchCommand, buildRunCommand, executeAndTrack, getActiveProcesses } from "../src/executor.js";
 import { tick, getHeartbeatStatus, getDueAgents } from "../src/heartbeat.js";
 import { getRecentCosts, getTotalCost } from "../src/cost-tracker.js";
 import { syncIssues } from "../src/github-sync.js";
@@ -428,11 +428,12 @@ export default function (pi: ExtensionAPI) {
 	// ── Dispatch ──
 
 	pi.registerCommand("corp-dispatch", {
-		description: "Match and dispatch todo tickets to available agents (with skills). Shows the exact commands.",
+		description: "Match and dispatch todo tickets to available agents. Use execute=true to actually spawn agent processes.",
 		parameters: Type.Object({
 			dryRun: Type.Optional(Type.Boolean({ description: "Preview without dispatching" })),
+			execute: Type.Optional(Type.Boolean({ description: "Actually spawn agent processes (default: false, just creates DB records)" })),
 		}),
-		execute: async ({ dryRun }) => {
+		execute: async ({ dryRun, execute: doExec }) => {
 			const db = getDb();
 			const matches = matchTicketsToAgents(db);
 			if (matches.length === 0) return Text("No tickets to dispatch (no todo tickets or no idle agents)");
@@ -446,15 +447,25 @@ export default function (pi: ExtensionAPI) {
 					lines.push(`        → ${agent.name} [${agent.runtime}] (${skillNames})`);
 				} else {
 					const run = dispatchRun(db, ticket.id, agent.id);
-					const cmd = buildDispatchCommand(db, run);
-					lines.push(`  ⚡ ${ticket.title}`);
-					lines.push(`     agent: ${agent.name} [${agent.runtime}] skills: ${skillNames}`);
-					lines.push(`     run:   ${run.id}`);
-					lines.push(`     cmd:   ${cmd.slice(0, 120)}${cmd.length > 120 ? "..." : ""}`);
+
+					if (doExec) {
+						const result = executeAndTrack(db, run);
+						lines.push(`  🚀 ${ticket.title}`);
+						lines.push(`     agent: ${agent.name} [${agent.runtime}] skills: ${skillNames}`);
+						lines.push(`     run:   ${run.id} │ pid: ${result.pid ?? "?"}`);
+						lines.push(`     cmd:   ${result.command}`);
+					} else {
+						const cmd = buildDispatchCommand(db, run);
+						lines.push(`  ⚡ ${ticket.title}`);
+						lines.push(`     agent: ${agent.name} [${agent.runtime}] skills: ${skillNames}`);
+						lines.push(`     run:   ${run.id}`);
+						lines.push(`     cmd:   ${cmd.slice(0, 120)}${cmd.length > 120 ? "..." : ""}`);
+					}
 					lines.push("");
 				}
 			}
-			return Text(`${dryRun ? "Would dispatch" : "Dispatched"} ${matches.length} tickets:\n\n${lines.join("\n")}`);
+			const mode = dryRun ? "Would dispatch" : doExec ? "LAUNCHED" : "Dispatched";
+			return Text(`${mode} ${matches.length} tickets:\n\n${lines.join("\n")}`);
 		},
 	});
 
@@ -507,6 +518,63 @@ export default function (pi: ExtensionAPI) {
 			const db = getDb();
 			failRun(db, runId, error);
 			return Text(`❌ Run ${runId.slice(0, 8)} failed: ${error}`);
+		},
+	});
+
+	// ── GO (full auto) ──
+
+	pi.registerCommand("corp-go", {
+		description: "🚀 Full auto mode — tick heartbeat + dispatch all + execute. The big red button.",
+		parameters: Type.Object({
+			rounds: Type.Optional(Type.Number({ description: "Number of heartbeat rounds to run (default 1)" })),
+		}),
+		execute: async ({ rounds }) => {
+			const db = getDb();
+			const totalRounds = rounds ?? 1;
+			const allActions: string[] = [];
+
+			for (let i = 0; i < totalRounds; i++) {
+				// 1. Heartbeat tick — wake due agents, create heartbeat tickets
+				const hbResult = tick(db);
+				allActions.push(`── Round ${i + 1}: heartbeat ticked ${hbResult.ticked} agents`);
+				for (const a of hbResult.actions.slice(0, 3)) allActions.push("  " + a);
+				if (hbResult.actions.length > 3) allActions.push(`  ... +${hbResult.actions.length - 3} more`);
+
+				// 2. Dispatch — match all todo tickets to idle agents
+				const matches = matchTicketsToAgents(db);
+				for (const { ticket, agent } of matches) {
+					const run = dispatchRun(db, ticket.id, agent.id);
+					const result = executeAndTrack(db, run);
+					allActions.push(`  🚀 ${agent.name} → ${ticket.title.slice(0, 50)} (pid: ${result.pid ?? "?"})`);
+				}
+
+				// 3. Retry failed
+				const retried = retryFailed(db);
+				if (retried > 0) allActions.push(`  🔄 Retried ${retried} failed tickets`);
+			}
+
+			const procs = getActiveProcesses();
+			allActions.push("");
+			allActions.push(`Active processes: ${procs.size}`);
+
+			return Text(`🚀 CORP-GO executed ${totalRounds} round(s):\n\n${allActions.join("\n")}`);
+		},
+	});
+
+	// ── Processes ──
+
+	pi.registerCommand("corp-processes", {
+		description: "Show active agent processes",
+		parameters: Type.Object({}),
+		execute: async () => {
+			const procs = getActiveProcesses();
+			if (procs.size === 0) return Text("No active processes. Use /corp-go to start.");
+			const lines: string[] = ["── ACTIVE PROCESSES ───────────────────────────────────────"];
+			for (const [runId, proc] of procs) {
+				const elapsed = Math.round((Date.now() - proc.startedAt.getTime()) / 1000);
+				lines.push(`  pid:${proc.pid ?? "?"} │ run:${runId.slice(0, 8)} │ ${elapsed}s │ ${proc.command}`);
+			}
+			return Text(lines.join("\n"));
 		},
 	});
 
@@ -933,6 +1001,32 @@ export default function (pi: ExtensionAPI) {
 			const db = getDb();
 			const result = tick(db);
 			return JSON.stringify(result);
+		},
+	});
+
+	pi.addLLMTool({
+		name: "corp_go",
+		description: "🚀 Full auto — heartbeat tick + dispatch + execute + retry. The autonomous loop.",
+		parameters: Type.Object({
+			rounds: Type.Optional(Type.Number({ description: "Number of rounds (default 1)" })),
+		}),
+		execute: async ({ rounds }) => {
+			const db = getDb();
+			const totalRounds = rounds ?? 1;
+			const results: string[] = [];
+			for (let i = 0; i < totalRounds; i++) {
+				const hb = tick(db);
+				const matches = matchTicketsToAgents(db);
+				let launched = 0;
+				for (const { ticket, agent } of matches) {
+					const run = dispatchRun(db, ticket.id, agent.id);
+					executeAndTrack(db, run);
+					launched++;
+				}
+				const retried = retryFailed(db);
+				results.push(`Round ${i + 1}: ticked ${hb.ticked}, launched ${launched}, retried ${retried}`);
+			}
+			return JSON.stringify({ rounds: totalRounds, results, activeProcesses: getActiveProcesses().size });
 		},
 	});
 

@@ -64,13 +64,22 @@ export function isOverBudget(db: Database, agentId: string): boolean {
 	return agent.spent_monthly >= agent.budget_monthly;
 }
 
-export function getOrgTree(db: Database): { agent: Agent; reports: Agent[] }[] {
-	const agents = listAgents(db);
-	const roots = agents.filter((a) => !a.reports_to && a.status !== "fired");
-	return roots.map((root) => ({
-		agent: root,
-		reports: agents.filter((a) => a.reports_to === root.id && a.status !== "fired"),
-	}));
+export interface OrgNode { agent: Agent; reports: OrgNode[] }
+
+export function getOrgTree(db: Database): OrgNode[] {
+	const agents = listAgents(db).filter((a) => a.status !== "fired");
+	const byManager = new Map<string | null, Agent[]>();
+	for (const a of agents) {
+		const key = a.reports_to ?? "__root__";
+		if (!byManager.has(key)) byManager.set(key, []);
+		byManager.get(key)!.push(a);
+	}
+	function build(parentId: string | null): OrgNode[] {
+		const key = parentId ?? "__root__";
+		const children = byManager.get(key) ?? [];
+		return children.map((a) => ({ agent: a, reports: build(a.id) }));
+	}
+	return build(null);
 }
 
 export function buildCommand(runtime: Runtime, prompt: string, model?: string | null): string[] {

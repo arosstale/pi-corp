@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
 import { getDb, closeDb } from "../src/db.js";
-import { hireAgent, listAgents, getOrgTree, type Role, type Runtime, ROLES, RUNTIMES } from "../src/org.js";
+import { hireAgent, listAgents, getOrgTree, type Role, type Runtime, type OrgNode, ROLES, RUNTIMES } from "../src/org.js";
 import { createGoal, listGoals, createProject, listProjects } from "../src/goals.js";
 import { createTicket, listTickets, importPrd } from "../src/tickets.js";
 import { matchTicketsToAgents, dispatchRun, completeRun, failRun, listRuns, getStats } from "../src/dispatch.js";
@@ -43,19 +43,18 @@ export default function (pi: ExtensionAPI) {
 				lines.push("");
 			}
 
-			// Org chart
+			// Org chart (recursive)
 			if (org.length > 0) {
 				lines.push("── ORG CHART ──────────────────────────────────────");
-				for (const { agent, reports } of org) {
-					const budget = agent.budget_monthly > 0 ? ` $${agent.spent_monthly.toFixed(2)}/$${agent.budget_monthly.toFixed(0)}` : "";
-					const status = agent.status === "working" ? "🔵" : agent.status === "idle" ? "⚪" : "🔴";
-					lines.push(`  ${status} ${agent.name} (${agent.role}) [${agent.runtime}]${budget}`);
-					for (const r of reports) {
-						const rBudget = r.budget_monthly > 0 ? ` $${r.spent_monthly.toFixed(2)}/$${r.budget_monthly.toFixed(0)}` : "";
-						const rStatus = r.status === "working" ? "🔵" : r.status === "idle" ? "⚪" : "🔴";
-						lines.push(`    └─ ${rStatus} ${r.name} (${r.role}) [${r.runtime}]${rBudget}`);
-					}
+				function renderNode(node: OrgNode, indent: number, isLast: boolean): void {
+					const a = node.agent;
+					const budget = a.budget_monthly > 0 ? ` $${a.spent_monthly.toFixed(2)}/$${a.budget_monthly.toFixed(0)}` : "";
+					const icon = a.status === "working" ? "🔵" : a.status === "idle" ? "⚪" : "🔴";
+					const prefix = indent === 0 ? "  " : "  " + "    ".repeat(indent - 1) + (isLast ? "└─ " : "├─ ");
+					lines.push(`${prefix}${icon} ${a.name} (${a.role}) [${a.runtime}]${budget}`);
+					node.reports.forEach((child, i) => renderNode(child, indent + 1, i === node.reports.length - 1));
 				}
+				org.forEach((node, i) => renderNode(node, 0, i === org.length - 1));
 				lines.push("");
 			}
 

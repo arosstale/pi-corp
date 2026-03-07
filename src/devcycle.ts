@@ -11,7 +11,7 @@
  * and Symphony's reconciliation loop.
  */
 
-import type { Database } from "bun:sqlite";
+import type { Database } from "./db.ts";
 import { genId, emit } from "./db.ts";
 
 export type CyclePhase = "plan" | "build" | "test" | "review" | "deploy" | "measure" | "iterate" | "done";

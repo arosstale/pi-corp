@@ -5,7 +5,7 @@
  * with tailored orgs, pipelines, and ticket backlogs.
  */
 
-import type { Database } from "bun:sqlite";
+import type { Database } from "./db.ts";
 import { createGoal, createProject } from "./goals.ts";
 import { hireAgent, type Role, type Runtime } from "./org.ts";
 import { createTicket } from "./tickets.ts";

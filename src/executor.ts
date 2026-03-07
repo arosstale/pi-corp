@@ -2,7 +2,7 @@
  * Executor — the bridge between dispatch (DB) and actual agent execution.
  *
  * When /corp-dispatch matches tickets to agents, this module actually
- * spawns the agent processes via pi's interactive_shell dispatch mode.
+ * spawns the agent processes.
  *
  * Flow:
  *   1. dispatchRun() creates a DB run record (dispatch.ts)
@@ -20,12 +20,13 @@
  *   claude-desktop → claude --print -p "task" (same as claude)
  */
 
-import type { Database } from "bun:sqlite";
+import type { Database } from "./db.ts";
 import { buildCommand, type Runtime } from "./org.ts";
 import { getSkillkit, buildSkillInjection } from "./skillkits.ts";
 import { completeRun, failRun, type Run } from "./dispatch.ts";
 import { getTicket } from "./tickets.ts";
 import { getAgent } from "./org.ts";
+import { spawn } from "node:child_process";
 
 export interface ExecResult {
 	output: string;
@@ -53,47 +54,55 @@ export function buildRunCommand(db: Database, run: Run): { command: string; args
 }
 
 /**
- * Execute a run synchronously using Bun.spawn.
- * For actual pi integration, use the interactive_shell dispatch mode instead.
+ * Execute a run synchronously using child_process.spawn.
  */
 export async function executeRunSync(db: Database, run: Run): Promise<ExecResult> {
 	const { command, args } = buildRunCommand(db, run);
 
-	try {
-		const proc = Bun.spawn([command, ...args], {
-			cwd: process.cwd(),
-			stdout: "pipe",
-			stderr: "pipe",
-			env: { ...process.env, FORCE_COLOR: "0" },
-		});
+	return new Promise((resolve) => {
+		try {
+			const proc = spawn(command, args, {
+				cwd: process.cwd(),
+				env: { ...process.env, FORCE_COLOR: "0" },
+				stdio: ["ignore", "pipe", "pipe"],
+				shell: true,
+			});
 
-		const stdout = await new Response(proc.stdout).text();
-		const stderr = await new Response(proc.stderr).text();
-		const exitCode = await proc.exited;
+			let stdout = "";
+			let stderr = "";
+			proc.stdout?.on("data", (d: Buffer) => { stdout += d.toString(); });
+			proc.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
 
-		const output = stdout + (stderr ? `\n--- STDERR ---\n${stderr}` : "");
+			proc.on("close", (exitCode) => {
+				const code = exitCode ?? 1;
+				const output = stdout + (stderr ? `\n--- STDERR ---\n${stderr}` : "");
 
-		if (exitCode === 0) {
-			completeRun(db, run.id, { output, cost: 0 });
-		} else {
-			failRun(db, run.id, `Exit code ${exitCode}: ${stderr.slice(0, 500)}`);
+				if (code === 0) {
+					completeRun(db, run.id, { output, cost: 0 });
+				} else {
+					failRun(db, run.id, `Exit code ${code}: ${stderr.slice(0, 500)}`);
+				}
+
+				resolve({ output, exitCode: code });
+			});
+
+			proc.on("error", (err) => {
+				failRun(db, run.id, err.message);
+				resolve({ output: "", exitCode: 1 });
+			});
+		} catch (err: unknown) {
+			const msg = err instanceof Error ? err.message : String(err);
+			failRun(db, run.id, msg);
+			resolve({ output: "", exitCode: 1 });
 		}
-
-		return { output, exitCode };
-	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
-		failRun(db, run.id, msg);
-		return { output: "", exitCode: 1 };
-	}
+	});
 }
 
 /**
  * Build the interactive_shell dispatch command for a run.
- * This is what pi's extension would call to fire-and-forget an agent.
  */
 export function buildDispatchCommand(db: Database, run: Run): string {
 	const { command, args } = buildRunCommand(db, run);
-	// Escape for shell
 	const escaped = [command, ...args].map((a) => {
 		if (a.includes(" ") || a.includes('"') || a.includes("'") || a.includes("\n")) {
 			return `"${a.replace(/"/g, '\\"')}"`;
@@ -104,7 +113,7 @@ export function buildDispatchCommand(db: Database, run: Run): string {
 }
 
 /**
- * Execute a run via Bun.spawn in background (fire-and-forget).
+ * Execute a run in background (fire-and-forget).
  * Captures output, updates DB on completion.
  * Returns immediately — the process runs async.
  */
@@ -112,31 +121,33 @@ export function executeRunBackground(db: Database, run: Run): { pid: number | un
 	const { command, args } = buildRunCommand(db, run);
 	const fullCmd = [command, ...args].join(" ").slice(0, 120);
 
-	const proc = Bun.spawn([command, ...args], {
+	const proc = spawn(command, args, {
 		cwd: process.cwd(),
-		stdout: "pipe",
-		stderr: "pipe",
 		env: { ...process.env, FORCE_COLOR: "0" },
+		stdio: ["ignore", "pipe", "pipe"],
+		shell: true,
+		detached: false,
 	});
 
-	// Fire-and-forget: handle completion in background
-	(async () => {
-		try {
-			const stdout = await new Response(proc.stdout).text();
-			const stderr = await new Response(proc.stderr).text();
-			const exitCode = await proc.exited;
-			const output = stdout.slice(0, 10000) + (stderr ? `\n--- STDERR ---\n${stderr.slice(0, 2000)}` : "");
+	let stdout = "";
+	let stderr = "";
+	proc.stdout?.on("data", (d: Buffer) => { stdout += d.toString().slice(0, 10000); });
+	proc.stderr?.on("data", (d: Buffer) => { stderr += d.toString().slice(0, 2000); });
 
-			if (exitCode === 0) {
-				completeRun(db, run.id, { output, cost: 0 });
-			} else {
-				failRun(db, run.id, `Exit code ${exitCode}: ${stderr.slice(0, 500)}`);
-			}
-		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
-			failRun(db, run.id, msg);
+	proc.on("close", (exitCode) => {
+		const code = exitCode ?? 1;
+		const output = stdout + (stderr ? `\n--- STDERR ---\n${stderr}` : "");
+
+		if (code === 0) {
+			completeRun(db, run.id, { output, cost: 0 });
+		} else {
+			failRun(db, run.id, `Exit code ${code}: ${stderr.slice(0, 500)}`);
 		}
-	})();
+	});
+
+	proc.on("error", (err) => {
+		failRun(db, run.id, err.message);
+	});
 
 	return { pid: proc.pid, command: fullCmd };
 }

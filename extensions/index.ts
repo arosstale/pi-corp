@@ -370,7 +370,8 @@ export default function (pi: ExtensionAPI) {
 		}),
 		execute: async ({ file, projectId }) => {
 			const db = getDb();
-			const raw = await Bun.file(file).text();
+			const { readFileSync } = await import("node:fs");
+			const raw = readFileSync(file, "utf-8");
 			const prd = JSON.parse(raw);
 			const stories = prd.userStories ?? prd.stories ?? prd;
 			if (!Array.isArray(stories)) return Text("❌ PRD must contain an array of stories");

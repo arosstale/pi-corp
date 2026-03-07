@@ -9,7 +9,7 @@
  *   - Next steps
  */
 
-import type { Database } from "bun:sqlite";
+import type { Database } from "./db.ts";
 import { genId, emit } from "./db.ts";
 import { listTickets } from "./tickets.ts";
 import { getSeoStats } from "./seo-pages.ts";

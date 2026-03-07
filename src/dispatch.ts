@@ -3,7 +3,7 @@
  * Assigns tickets to available agents, respects budgets, tracks runs.
  */
 
-import type { Database } from "bun:sqlite";
+import type { Database } from "./db.ts";
 import { genId, emit } from "./db.ts";
 import { listAgents, isOverBudget, setAgentStatus, recordSpend, buildCommand, type Agent, type Runtime } from "./org.ts";
 import { listTickets, assignTicket, completeTicket, failTicket, type Ticket } from "./tickets.ts";

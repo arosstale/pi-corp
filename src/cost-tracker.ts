@@ -13,7 +13,7 @@
  *   { type: "assistant", costUSD: 0.05, ... }
  */
 
-import { readdirSync, readFileSync, existsSync } from "node:fs";
+import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
 import { join, basename } from "node:path";
 
 export interface SessionCost {
@@ -45,8 +45,8 @@ export function findPiSessions(limit = 10): string[] {
 				const jsonlFiles = entries.filter((e) => e.endsWith(".jsonl"));
 				for (const f of jsonlFiles) {
 					const filePath = join(fullPath, f);
-					const stat = Bun.file(filePath);
-					dirs.push({ path: filePath, mtime: stat.lastModified });
+					const stat = statSync(filePath);
+					dirs.push({ path: filePath, mtime: stat.mtimeMs });
 				}
 			} catch { /* skip */ }
 		}

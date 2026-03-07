@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { Database } from "bun:sqlite";
+import { Database } from "../src/db.ts";
 import { createPipeline } from "../src/marketing.ts";
 import { bootstrapAgency } from "../src/agency.ts";
 import { createExperiment, startExperiment, completeExperiment, listExperiments, generateHypotheses, getPortfolioAlpha } from "../src/experiments.ts";

@@ -10,7 +10,7 @@
  *   6. Feed into cold email sequences
  */
 
-import type { Database } from "bun:sqlite";
+import type { Database } from "./db.ts";
 import { genId, emit } from "./db.ts";
 
 export interface Prospect {

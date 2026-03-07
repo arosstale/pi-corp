@@ -1,15 +1,87 @@
 /**
  * pi-corp SQLite store.
  * Single file DB: ~/.pi-corp/corp.db
- * Tables: goals, projects, agents, budgets, tickets, runs, events
+ *
+ * Runtime detection:
+ *   - Bun: uses bun:sqlite (native, fast)
+ *   - Node.js: uses better-sqlite3 (npm package)
+ *
+ * Both expose the same API via the Database wrapper class.
  */
 
-import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
+const IS_BUN = typeof globalThis.Bun !== "undefined";
+
 const CORP_DIR = join(process.env.HOME ?? process.env.USERPROFILE ?? ".", ".pi-corp");
 const DB_PATH = join(CORP_DIR, "corp.db");
+
+/**
+ * Unified Database class — wraps either bun:sqlite or better-sqlite3.
+ * API: exec(), run(), query().get(), query().all(), close()
+ */
+export class Database {
+	private _db: any;
+
+	constructor(path: string) {
+		if (IS_BUN) {
+			// bun:sqlite — import dynamically at runtime
+			const BunDatabase = require("bun:sqlite").Database;
+			this._db = new BunDatabase(path);
+			this._db._isBun = true;
+		} else {
+			// better-sqlite3 — Node.js
+			const BetterSqlite3 = require("better-sqlite3");
+			this._db = new BetterSqlite3(path);
+			this._db._isBun = false;
+		}
+	}
+
+	exec(sql: string): void {
+		this._db.exec(sql);
+	}
+
+	run(sql: string, params?: unknown[]): void {
+		if (this._db._isBun) {
+			// bun:sqlite: db.run(sql, params)
+			if (params && params.length > 0) {
+				this._db.run(sql, params);
+			} else {
+				this._db.run(sql);
+			}
+		} else {
+			// better-sqlite3: db.prepare(sql).run(...params)
+			if (params && params.length > 0) {
+				this._db.prepare(sql).run(...params);
+			} else {
+				this._db.prepare(sql).run();
+			}
+		}
+	}
+
+	query(sql: string) {
+		if (this._db._isBun) {
+			// bun:sqlite: db.query(sql) returns a prepared statement
+			const stmt = this._db.query(sql);
+			return {
+				get: (...params: unknown[]) => params.length > 0 ? stmt.get(...params) : stmt.get(),
+				all: (...params: unknown[]) => params.length > 0 ? stmt.all(...params) : stmt.all(),
+			};
+		} else {
+			// better-sqlite3: db.prepare(sql)
+			const stmt = this._db.prepare(sql);
+			return {
+				get: (...params: unknown[]) => params.length > 0 ? stmt.get(...params) : stmt.get(),
+				all: (...params: unknown[]) => params.length > 0 ? stmt.all(...params) : stmt.all(),
+			};
+		}
+	}
+
+	close(): void {
+		this._db.close();
+	}
+}
 
 let _db: Database | null = null;
 

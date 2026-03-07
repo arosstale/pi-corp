@@ -3,7 +3,7 @@
  * Paperclip concept: "If OpenClaw is an employee, Paperclip is the company."
  */
 
-import type { Database } from "bun:sqlite";
+import type { Database } from "./db.ts";
 import { genId, emit } from "./db.ts";
 
 export interface Agent {

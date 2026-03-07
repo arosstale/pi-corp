@@ -10,7 +10,7 @@
  *   - Activity feed
  */
 
-import type { Database } from "bun:sqlite";
+import type { Database } from "./db.ts";
 import { listGoals } from "./goals.ts";
 import { listAgents, getOrgTree, type Agent } from "./org.ts";
 import { listTickets } from "./tickets.ts";

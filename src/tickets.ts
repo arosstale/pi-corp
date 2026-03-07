@@ -4,7 +4,7 @@
  * Each ticket gets an isolated workspace and agent run.
  */
 
-import type { Database } from "bun:sqlite";
+import type { Database } from "./db.ts";
 import { genId, emit } from "./db.ts";
 
 export interface Ticket {

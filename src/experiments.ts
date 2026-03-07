@@ -17,7 +17,7 @@
  * and compounds learnings — just like a quant fund compounds returns.
  */
 
-import type { Database } from "bun:sqlite";
+import type { Database } from "./db.ts";
 import { genId, emit } from "./db.ts";
 
 export type ExperimentStatus = "hypothesis" | "running" | "completed" | "winner" | "loser" | "inconclusive";

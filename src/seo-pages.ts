@@ -10,7 +10,7 @@
  * schema markup, meta description, internal links.
  */
 
-import type { Database } from "bun:sqlite";
+import type { Database } from "./db.ts";
 import { genId, emit } from "./db.ts";
 
 export interface SeoPage {

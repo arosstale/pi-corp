@@ -12,7 +12,7 @@
  * with a structured intake that feeds directly into execution.
  */
 
-import type { Database } from "bun:sqlite";
+import type { Database } from "./db.ts";
 import { genId, emit } from "./db.ts";
 import { createTicket } from "./tickets.ts";
 

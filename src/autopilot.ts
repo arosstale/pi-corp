@@ -30,7 +30,7 @@
  * - Every week, full cycle review: metrics → iterate → plan next sprint
  */
 
-import type { Database } from "bun:sqlite";
+import type { Database } from "./db.ts";
 import { genId, emit } from "./db.ts";
 
 export type HeartbeatInterval = "5m" | "15m" | "1h" | "4h" | "1d" | "1w";

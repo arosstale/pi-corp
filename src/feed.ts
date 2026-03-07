@@ -2,7 +2,7 @@
  * Activity Feed — chronological view of everything that happened.
  */
 
-import type { Database } from "bun:sqlite";
+import type { Database } from "./db.ts";
 
 export interface FeedEvent {
 	id: number;

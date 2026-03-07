@@ -24,7 +24,7 @@
  * Tasks reference specific marketing skills from coreyhaines31/marketingskills.
  */
 
-import type { Database } from "bun:sqlite";
+import type { Database } from "./db.ts";
 import { genId, emit } from "./db.ts";
 
 export type PipelineType = "content" | "launch" | "growth" | "evergreen" | "waelcorp";

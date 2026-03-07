@@ -10,7 +10,7 @@
  * - Inline skill text
  */
 
-import type { Database } from "bun:sqlite";
+import type { Database } from "./db.ts";
 import { genId, emit } from "./db.ts";
 
 export interface Skillkit {

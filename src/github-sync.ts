@@ -2,17 +2,12 @@
  * GitHub Issues Sync — pull issues into tickets, push status back.
  *
  * Uses `gh` CLI (no API tokens needed if authenticated).
- *
- * Sync flow:
- *   1. `gh issue list` → parse JSON
- *   2. For each issue not already tracked → createTicket(source: "github")
- *   3. When ticket completes → `gh issue comment` with result
- *   4. Optionally close issue on completion
  */
 
-import type { Database } from "bun:sqlite";
+import type { Database } from "./db.ts";
 import { createTicket, listTickets, type Ticket } from "./tickets.ts";
 import { emit } from "./db.ts";
+import { execFileSync } from "node:child_process";
 
 export interface GitHubIssue {
 	number: number;
@@ -23,17 +18,20 @@ export interface GitHubIssue {
 	url: string;
 }
 
+function runGh(args: string[]): string {
+	try {
+		return execFileSync("gh", args, { encoding: "utf-8", timeout: 30000, stdio: ["ignore", "pipe", "pipe"] });
+	} catch {
+		return "";
+	}
+}
+
 /**
  * Fetch open issues from a GitHub repo via `gh` CLI.
  */
 export async function fetchGitHubIssues(repo: string, limit = 20): Promise<GitHubIssue[]> {
-	const proc = Bun.spawn(
-		["gh", "issue", "list", "--repo", repo, "--state", "open", "--limit", String(limit), "--json", "number,title,body,labels,state,url"],
-		{ stdout: "pipe", stderr: "pipe" },
-	);
-	const stdout = await new Response(proc.stdout).text();
-	const exitCode = await proc.exited;
-	if (exitCode !== 0) return [];
+	const stdout = runGh(["issue", "list", "--repo", repo, "--state", "open", "--limit", String(limit), "--json", "number,title,body,labels,state,url"]);
+	if (!stdout) return [];
 	try {
 		return JSON.parse(stdout) as GitHubIssue[];
 	} catch {
@@ -43,7 +41,6 @@ export async function fetchGitHubIssues(repo: string, limit = 20): Promise<GitHu
 
 /**
  * Sync GitHub issues into corp tickets.
- * Skips issues already tracked (by source_id).
  */
 export async function syncIssues(db: Database, repo: string, projectId: string): Promise<{ created: number; skipped: number }> {
 	const issues = await fetchGitHubIssues(repo);
@@ -55,18 +52,13 @@ export async function syncIssues(db: Database, repo: string, projectId: string):
 
 	for (const issue of issues) {
 		const sourceId = `${repo}#${issue.number}`;
-		if (existingIds.has(sourceId)) {
-			skipped++;
-			continue;
-		}
+		if (existingIds.has(sourceId)) { skipped++; continue; }
 
-		// Map labels to priority
 		let priority = 3;
 		const labelNames = issue.labels.map((l) => l.name.toLowerCase());
-		if (labelNames.includes("critical") || labelNames.includes("p0") || labelNames.includes("urgent")) priority = 1;
+		if (labelNames.includes("critical") || labelNames.includes("p0")) priority = 1;
 		else if (labelNames.includes("bug") || labelNames.includes("p1")) priority = 2;
-		else if (labelNames.includes("enhancement") || labelNames.includes("p2")) priority = 2;
-		else if (labelNames.includes("good first issue") || labelNames.includes("p3")) priority = 3;
+		else if (labelNames.includes("enhancement")) priority = 2;
 
 		createTicket(db, `[GH#${issue.number}] ${issue.title}`, {
 			projectId,
@@ -78,31 +70,14 @@ export async function syncIssues(db: Database, repo: string, projectId: string):
 		created++;
 	}
 
-	if (created > 0) {
-		emit(db, "github.synced", "project", projectId, { repo, created, skipped });
-	}
-
+	if (created > 0) emit(db, "github.synced", "project", projectId, { repo, created, skipped });
 	return { created, skipped };
 }
 
-/**
- * Comment on a GitHub issue when a ticket completes.
- */
 export async function commentOnIssue(repo: string, issueNumber: number, comment: string): Promise<boolean> {
-	const proc = Bun.spawn(
-		["gh", "issue", "comment", String(issueNumber), "--repo", repo, "--body", comment],
-		{ stdout: "pipe", stderr: "pipe" },
-	);
-	return (await proc.exited) === 0;
+	return !!runGh(["issue", "comment", String(issueNumber), "--repo", repo, "--body", comment]);
 }
 
-/**
- * Close a GitHub issue.
- */
 export async function closeIssue(repo: string, issueNumber: number): Promise<boolean> {
-	const proc = Bun.spawn(
-		["gh", "issue", "close", String(issueNumber), "--repo", repo],
-		{ stdout: "pipe", stderr: "pipe" },
-	);
-	return (await proc.exited) === 0;
+	return !!runGh(["issue", "close", String(issueNumber), "--repo", repo]);
 }

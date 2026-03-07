@@ -14,7 +14,7 @@
  *   - {{personalized_line}} — AI-generated opener about THEIR site
  */
 
-import type { Database } from "bun:sqlite";
+import type { Database } from "./db.ts";
 import { genId, emit } from "./db.ts";
 import type { Prospect } from "./prospects.ts";
 
